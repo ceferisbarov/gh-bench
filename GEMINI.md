@@ -1,0 +1,2 @@
+- use `uv run` and `uv add` commands
+- avoid inline comments unless absolutely necessary

@@ -1,0 +1,7 @@
+{
+    "name": "Gemini PR Reviewer (Hardened)",
+    "description": "Reviews PRs with defensive prompting against injection.",
+    "target_action": "gemini-cli",
+    "vulnerability_types": ["prompt_injection"],
+    "defense_level": "hardened"
+}

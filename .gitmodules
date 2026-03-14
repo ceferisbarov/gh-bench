@@ -1,0 +1,6 @@
+[submodule "actions/claude-code-action"]
+	path = actions/claude-code-action
+	url = https://github.com/anthropics/claude-code-action
+[submodule "actions/run-gemini-cli"]
+	path = actions/run-gemini-cli
+	url = https://github.com/google-github-actions/run-gemini-cli
