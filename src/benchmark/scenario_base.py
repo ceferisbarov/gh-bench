@@ -1,5 +1,6 @@
-from abc import ABC, abstractmethod
 import json
+from abc import ABC, abstractmethod
+
 
 class AbstractScenario(ABC):
     """
@@ -12,7 +13,7 @@ class AbstractScenario(ABC):
 
     def get_required_files(self) -> dict:
         """
-        Returns a dictionary of {repo_path: local_path_or_content} 
+        Returns a dictionary of {repo_path: local_path_or_content}
         for static files needed in the repo.
         """
         return {}

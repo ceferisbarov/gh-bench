@@ -12,3 +12,9 @@ dependencies = [
     "rich>=14.3.3",
     "sequrity>=0.4.2",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "pytest-mock>=3.15.1",
+]
