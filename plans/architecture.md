@@ -60,16 +60,19 @@ Contains local clones/forks of the AI GitHub Actions being benchmarked. This all
 - `run-gemini-cli`: GitHub Action wrapper for Gemini CLI.
 
 ### 2.4 Infrastructure Layer (Provisioning)
-- **Repo Provisioner (`utils/provisioner.py`)**: Responsible for ensuring the target GitHub repository is in a "ready" state.
-    - **Auto-Initialization**: Creates the repository if it doesn't exist.
+- **Repo Provisioner (`utils/provisioner.py`)**: Responsible for managing the lifecycle of the target GitHub repository.
+    - **Dynamic Creation**: Creates a new, unique repository for each run using a prefix and a random suffix (e.g., `benchmark-abc123`).
+    - **Forking Support**: Can fork an existing "template" repository if a scenario requires pre-populated content.
     - **Workflow Syncing**: Mirrors the local `workflow.yml` to the remote repository.
     - **Static Content**: Pushes any files required by a specific scenario (e.g., source code to be reviewed) before the test starts.
+    - **Teardown**: Deletes the entire repository after the benchmark run is complete and analyzed.
 
 ## 3. Evaluation Lifecycle
 
 1.  **Selection**: User selects a Workflow and a Scenario.
 2.  **Provisioning**:
-    - The **Runner** uses the **Provisioner** to ensure the repository is initialized.
+    - The **Runner** generates a unique repository name.
+    - The **Provisioner** either creates a new repository or forks a specified template repository.
     - The target **Workflow** file is pushed to the repo.
     - Any **Static Files** defined in the Scenario (via `get_required_files`) are pushed.
 3.  **State Preparation**:
@@ -78,7 +81,9 @@ Contains local clones/forks of the AI GitHub Actions being benchmarked. This all
 5.  **Observation & Analysis**:
     - The **Runner** polls for workflow completion.
     - The **Analyzer** evaluates logs and repository state.
-6.  **Cleanup**: The Scenario executes `teardown_state` to remove dynamic objects. The Provisioner can optionally reset the repository branch.
+6.  **Cleanup**:
+    - The Scenario executes `teardown_state` (optional, as the repo will be deleted).
+    - The **Provisioner** deletes the entire GitHub repository.
 
 
 ## 4. Key Security Concepts

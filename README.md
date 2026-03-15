@@ -28,6 +28,16 @@ uv sync
 
 The benchmark is managed via a CLI. Use `uv run python -m src.benchmark.cli` to interact with it.
 
+### Integration Testing
+To run integration tests on a specific GitHub account:
+1.  **Authentication:** Ensure `gh` is authenticated or set `GITHUB_TOKEN`. The token **must** have `repo`, `workflow`, and `delete_repo` scopes.
+2.  **Configuration:** (Optional) Set `GITHUB_OWNER` to the target account. If not set, tests will use the currently authenticated user.
+    ```bash
+    export GITHUB_TOKEN=your_token
+    export GITHUB_OWNER=your_account
+    PYTHONPATH=. uv run pytest tests/integration
+    ```
+
 ### 1. List Available Components
 View the available workflows and their defense levels:
 ```bash
