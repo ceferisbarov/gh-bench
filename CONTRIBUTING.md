@@ -38,7 +38,7 @@ uv run ruff format .
 ```
 
 ## Security Disclosure
-If you find a security vulnerability in the benchmark suite itself, please report it via the project's security policy (if available) or by opening a private issue.
+If you find a security vulnerability in the benchmark suite itself, please report it to isbarov at vt dot edu.
 
 ## License
 By contributing, you agree that your contributions will be licensed under the project's existing license.
