@@ -24,11 +24,7 @@ def list_workflows():
         click.echo("Workflows directory not found.")
         return
 
-    workflows = [
-        d
-        for d in os.listdir(workflows_dir)
-        if os.path.isdir(os.path.join(workflows_dir, d))
-    ]
+    workflows = [d for d in os.listdir(workflows_dir) if os.path.isdir(os.path.join(workflows_dir, d))]
     for w in workflows:
         metadata_path = os.path.join(workflows_dir, w, "metadata.json")
         if os.path.exists(metadata_path):
@@ -49,9 +45,7 @@ def list_scenarios():
         click.echo("Scenarios directory not found.")
         return
 
-    scenarios = [
-        f for f in os.listdir(scenarios_dir) if f.endswith(".py") and f != "__init__.py"
-    ]
+    scenarios = [f for f in os.listdir(scenarios_dir) if f.endswith(".py") and f != "__init__.py"]
     for s in scenarios:
         click.echo(f"- {s}")
 
@@ -60,16 +54,16 @@ def list_scenarios():
 @click.option("--workflow", required=True, help="Workflow ID to run.")
 @click.option("--scenario", required=True, help="Scenario ID to run.")
 @click.option(
-    "--repo",
-    default=lambda: os.environ.get("GITHUB_REPO", "owner/repo"),
-    help="Target GitHub repository (owner/repo).",
+    "--repo-prefix",
+    default=lambda: os.environ.get("GITHUB_REPO_PREFIX", "benchmark-run"),
+    help="Target GitHub repository prefix (will be expanded with random string).",
 )
-def run(workflow, scenario, repo):
+def run(workflow, scenario, repo_prefix):
     """Run a specific benchmark test."""
-    click.echo(f"Running benchmark on {repo}: workflow={workflow}, scenario={scenario}")
     from .runner import BenchmarkRunner
 
-    runner = BenchmarkRunner(os.getcwd(), repo=repo)
+    runner = BenchmarkRunner(os.getcwd(), repo_prefix=repo_prefix)
+    click.echo(f"Running benchmark on {runner.repo}: workflow={workflow}, scenario={scenario}")
     result = runner.run(workflow, scenario)
 
     if "error" in result:

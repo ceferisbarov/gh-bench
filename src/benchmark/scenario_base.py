@@ -18,6 +18,13 @@ class AbstractScenario(ABC):
         """
         return {}
 
+    def get_template_repo(self) -> str:
+        """
+        Returns the full name of a repository to fork (e.g., 'owner/repo').
+        If None, a new empty repository is created.
+        """
+        return None
+
     @abstractmethod
     def setup_state(self, gh_client):
         """Prepares the repository state before the benchmark run."""

@@ -106,7 +106,33 @@ class GitHubClient:
             args.append("--private")
 
         stdout, stderr = self.run_gh(args, use_repo=False)
-        return "https://github.com/" in stdout or "Created repository" in stdout, stderr
+        return stdout is not None and ("https://github.com/" in stdout or "Created repository" in stdout), stderr
+
+    def fork_repo(self, template_repo):
+        """Forks a template repository into a new unique name."""
+        # template_repo is the full path e.g. "owner/repo"
+        # self.repo is the new name e.g. "my-user/new-repo"
+        new_name = self.repo.split("/")[-1]
+        args = ["repo", "fork", template_repo, "--fork-name", new_name, "--clone=false"]
+        stdout, stderr = self.run_gh(args, use_repo=False)
+        return stdout is not None and ("https://github.com/" in stdout or "Created fork" in stdout), stderr
+
+    def delete_repo(self):
+        """Deletes the current repository."""
+        args = ["repo", "delete", self.repo, "--yes"]
+        stdout, stderr = self.run_gh(args, use_repo=False)
+
+        if stderr and "delete_repo" in stderr:
+            click.echo(
+                click.style(
+                    "\nERROR: Missing 'delete_repo' scope. Please run:\n"
+                    "  gh auth refresh -h github.com -s delete_repo\n",
+                    fg="yellow",
+                    bold=True,
+                )
+            )
+
+        return stdout is not None, stderr
 
     def get_branch_info(self, branch_name):
         """Checks if a branch exists and returns its info."""
