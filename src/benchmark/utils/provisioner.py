@@ -96,7 +96,7 @@ class RepoProvisioner:
             if success:
                 click.echo(f"Successfully prepared repository {self.gh_client.repo}.")
                 # Sleep to allow GitHub internal sync
-                time.sleep(5)
+                time.sleep(3)
 
                 if not template_repo:
                     # Push an initial commit to ensure 'main' exists

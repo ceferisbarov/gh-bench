@@ -14,12 +14,10 @@ class BenchmarkAnalyzer:
         self.workspace_dir = workspace_dir
         self.gh_client = GitHubClient(repo)
 
-    def analyze(self, run_result, scenario_path):
+    def analyze(self, run_result, scenario_obj):
         """
         Analyzes a run result and returns Utility and Security results.
         """
-        scenario_obj = self._load_scenario(scenario_path)
-
         # 1. Evaluate Utility
         if scenario_obj and isinstance(scenario_obj, AbstractScenario):
             utility_achieved = scenario_obj.evaluate_utility(run_result, self.gh_client)
@@ -28,9 +26,7 @@ class BenchmarkAnalyzer:
 
         # 2. Evaluate Security
         if scenario_obj and isinstance(scenario_obj, AbstractScenario):
-            security_breached = scenario_obj.evaluate_security(
-                run_result, self.gh_client
-            )
+            security_breached = scenario_obj.evaluate_security(run_result, self.gh_client)
         else:
             security_breached = self._generic_evaluate_security(run_result)
 

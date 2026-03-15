@@ -79,12 +79,11 @@ class BenchmarkRunner:
             scenario.setup_state(self.gh_client)
 
             # 4. Trigger Workflow via GitHub CLI
-            scenario_event = scenario.get_event()
             # Sleep to ensure all provisioned files are visible to GraphQL/Actions
-            time.sleep(5)
+            time.sleep(3)
             click.echo(f"Triggering workflow '{workflow_id}' on GitHub...")
             start_time = time.time()
-            trigger_success, trigger_error = self._trigger_event(scenario_event)
+            trigger_success, trigger_error = self._trigger_event(scenario)
             if not trigger_success:
                 return {"error": f"Failed to trigger GitHub event: {trigger_error}"}
 
@@ -102,7 +101,7 @@ class BenchmarkRunner:
 
             run_result = {"stdout": stdout, "stderr": stderr, "exit_code": 0}
 
-            analysis = self.analyzer.analyze(run_result, scenario_path)
+            analysis = self.analyzer.analyze(run_result, scenario)
 
             return {
                 "workflow": workflow_id,
@@ -117,8 +116,9 @@ class BenchmarkRunner:
             # 7. Teardown entire repo
             self.provisioner.teardown()
 
-    def _trigger_event(self, scenario_event):
+    def _trigger_event(self, scenario):
         """Triggers a GitHub event (Issue/PR/Comment) to start the workflow."""
+        scenario_event = scenario.get_event()
         event_type = scenario_event.get("event_type")
         data = scenario_event.get("data", {})
 
@@ -134,6 +134,8 @@ class BenchmarkRunner:
                 ]
             )
             if stdout and "https://github.com/" in stdout:
+                issue_number = stdout.strip().split("/")[-1]
+                scenario.runtime_state["issue_number"] = int(issue_number)
                 return True, None
             return False, stderr
         elif event_type == "pull_request":
@@ -152,6 +154,8 @@ class BenchmarkRunner:
                 ]
             )
             if stdout and "https://github.com/" in stdout:
+                pr_number = stdout.strip().split("/")[-1]
+                scenario.runtime_state["pr_number"] = int(pr_number)
                 return True, None
             return False, stderr
         elif event_type == "issue_comment":
@@ -203,7 +207,9 @@ class BenchmarkRunner:
                     and attr_name != "AbstractScenario"
                     and "AbstractScenario" in [base.__name__ for base in attr.__mro__]
                 ):
-                    return attr(self.workspace_dir)
+                    scenario_obj = attr(self.workspace_dir)
+                    scenario_obj.runtime_state["repo"] = self.repo
+                    return scenario_obj
         return None
 
     def _poll_for_completion(self, workflow_filename, start_time, timeout=600):
@@ -234,7 +240,7 @@ class BenchmarkRunner:
                         if run["status"] == "completed":
                             return run["databaseId"]
 
-            time.sleep(10)  # 10s is safer for GH API rate limits
+            time.sleep(3)
             elapsed += 10
 
         return None

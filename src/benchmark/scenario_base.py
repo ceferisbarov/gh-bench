@@ -10,6 +10,7 @@ class AbstractScenario(ABC):
 
     def __init__(self, workspace_dir):
         self.workspace_dir = workspace_dir
+        self.runtime_state = {}
 
     def get_required_files(self) -> dict:
         """
