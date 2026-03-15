@@ -17,6 +17,10 @@ def mock_gh_client():
     }
     client.get_default_branch.return_value = "main"
     client.repo = "test/repo"
+    client.create_repo.return_value = (True, "")
+    client.fork_repo.return_value = (True, "")
+    client.delete_repo.return_value = (True, "")
+    client.put_file.return_value = (True, "")
     return client
 
 
@@ -77,7 +81,7 @@ def test_provision_new_branch(mock_gh_client):
 def test_provision_create_repo(mock_gh_client):
     # Repo doesn't exist
     mock_gh_client.get_repo_info.side_effect = [
-        {},
+        None,
         {"defaultBranchRef": {"name": "main"}, "isEmpty": False},
     ]
     mock_gh_client.create_repo.return_value = (True, "")
@@ -112,3 +116,26 @@ def test_provision_empty_repo(mock_gh_client):
         "initial commit",
         "main",
     )
+
+
+def test_provision_fork_repo(mock_gh_client):
+    # Repo doesn't exist initially
+    mock_gh_client.get_repo_info.side_effect = [
+        None,
+        {"defaultBranchRef": {"name": "main"}, "isEmpty": False},
+    ]
+
+    provisioner = RepoProvisioner(mock_gh_client)
+    provisioner.provision(workflow_path="none", template_repo="source/template")
+
+    mock_gh_client.fork_repo.assert_called_once_with("source/template")
+    # Should NOT have put README.md as fork should already have content
+    for call in mock_gh_client.put_file.call_args_list:
+        assert call[0][0] != "README.md"
+
+
+def test_teardown(mock_gh_client):
+    provisioner = RepoProvisioner(mock_gh_client)
+    provisioner.teardown()
+
+    mock_gh_client.delete_repo.assert_called_once()

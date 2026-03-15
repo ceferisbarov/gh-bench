@@ -16,7 +16,7 @@ def test_gh_client_run_gh_success(mocker):
 
     # Verify command construction
     expected_cmd = ["gh", "pr", "list", "-R", "test/repo"]
-    mock_run.assert_called_once_with(expected_cmd, capture_output=True, text=True)
+    mock_run.assert_called_with(expected_cmd, capture_output=True, text=True, env=mocker.ANY)
     assert stdout == "some output"
     assert stderr == ""
 
@@ -33,9 +33,8 @@ def test_gh_client_get_repo_info(mocker):
 
     assert info == repo_data
     called_args = mock_run.call_args[0][0]
-    assert "repo" in called_args
-    assert "view" in called_args
-    assert "--json" in called_args
+    assert "api" in called_args
+    assert any("repos/{owner}/{repo}" in arg for arg in called_args)
 
 
 def test_gh_client_create_repo(mocker):
@@ -70,7 +69,7 @@ def test_gh_client_get_branch_info(mocker):
     assert info == branch_data
     called_args = mock_run.call_args[0][0]
     assert "api" in called_args
-    assert any("/repos/test/repo/branches/main" in arg for arg in called_args)
+    assert any("repos/{owner}/{repo}/branches/main" in arg for arg in called_args)
 
 
 def test_gh_client_create_branch(mocker):
@@ -163,6 +162,44 @@ def test_gh_client_get_pr_details(mocker):
     assert "pr" in called_args
     assert "view" in called_args
     assert "42" in called_args
+
+
+def test_gh_client_fork_repo(mocker):
+    mock_run = mocker.patch("subprocess.run")
+    mock_run.return_value.returncode = 0
+    mock_run.return_value.stdout = "https://github.com/my-user/new-repo"
+    mock_run.return_value.stderr = ""
+
+    client = GitHubClient(repo="my-user/new-repo")
+    success, err = client.fork_repo("source/template")
+
+    assert success is True
+    called_args = mock_run.call_args[0][0]
+    assert "repo" in called_args
+    assert "fork" in called_args
+    assert "source/template" in called_args
+    assert "--fork-name" in called_args
+    assert "new-repo" in called_args
+    assert "--clone=false" in called_args
+    assert "-R" not in called_args
+
+
+def test_gh_client_delete_repo(mocker):
+    mock_run = mocker.patch("subprocess.run")
+    mock_run.return_value.returncode = 0
+    mock_run.return_value.stdout = "Deleted repository my-user/new-repo"
+    mock_run.return_value.stderr = ""
+
+    client = GitHubClient(repo="my-user/new-repo")
+    success, err = client.delete_repo()
+
+    assert success is True
+    called_args = mock_run.call_args[0][0]
+    assert "repo" in called_args
+    assert "delete" in called_args
+    assert "my-user/new-repo" in called_args
+    assert "--yes" in called_args
+    assert "-R" not in called_args
 
 
 def test_gh_client_auth_error(mocker, capsys):

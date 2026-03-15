@@ -1,19 +1,17 @@
 import time
 import uuid
 
+import click
 import pytest
 
 from src.benchmark.utils.gh_client import GitHubClient
 
-# Use the correct account for testing
-REPO_OWNER = "velvetfairy2000"
-
 
 @pytest.fixture(scope="module")
-def real_repo():
+def real_repo(repo_owner):
     """Fixture to create and delete a temporary real GitHub repository."""
     repo_name = f"temp-test-gh-client-{uuid.uuid4().hex[:8]}"
-    full_repo = f"{REPO_OWNER}/{repo_name}"
+    full_repo = f"{repo_owner}/{repo_name}"
     client = GitHubClient(repo=full_repo)
 
     # 1. Create the repository
@@ -22,14 +20,16 @@ def real_repo():
         pytest.fail(f"Failed to create test repository {full_repo}: {err}")
 
     # Wait for creation to propagate
-    time.sleep(5)
+    time.sleep(3)
 
     yield client
 
     # Cleanup: Delete the repository
-    # We use -y to confirm and skip the -R if we use the full name as first arg
-    # or just use run_gh directly with repo view logic
-    client.run_gh(["repo", "delete", full_repo, "--yes"], use_repo=False)
+    success, err = client.delete_repo()
+    if not success and err and "delete_repo" in err:
+        click.echo(click.style(f"\nWARNING: Could not delete repository {full_repo} due to missing scope.\n", fg="yellow"))
+    elif not success:
+        click.echo(click.style(f"\nERROR: Could not delete repository {full_repo}: {err}\n", fg="red"))
 
 
 def test_gh_client_real_operations(real_repo):
@@ -72,3 +72,35 @@ def test_gh_client_real_operations(real_repo):
     files = real_repo.list_files(branch="feature-branch")
     assert "feature.txt" in files
     assert "README.md" in files
+
+
+def test_gh_client_real_fork_and_delete(real_repo, repo_owner):
+    """Real integration test for forking and deleting a repository."""
+    template = "octocat/Spoon-Knife"
+    fork_name = f"temp-fork-{uuid.uuid4().hex[:8]}"
+    full_fork = f"{repo_owner}/{fork_name}"
+
+    fork_client = GitHubClient(repo=full_fork)
+
+    # We don't use click.echo here because it's a test, but it's fine if imported
+    success, err = fork_client.fork_repo(template)
+    if not success:
+        pytest.skip(f"Fork failed (maybe already exists or rate limit): {err}")
+
+    # Wait for fork
+    time.sleep(10)
+
+    try:
+        info = fork_client.get_repo_info()
+        assert info is not None
+        assert info.get("name") == fork_name
+
+        # Verify it has files from Spoon-Knife
+        files = fork_client.list_files(branch="main")
+        assert "README.md" in files or "index.html" in files
+    finally:
+        # 2. Delete the fork
+        success, err = fork_client.delete_repo()
+        if not success and err and "delete_repo" in err:
+            pytest.skip(f"Could not delete fork (missing scope): {err}")
+        assert success is True, f"Failed to delete fork: {err}"
