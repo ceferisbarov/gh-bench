@@ -3,6 +3,8 @@ import json
 import os
 import time
 
+import click
+
 from .analyzer import BenchmarkAnalyzer
 from .utils.gh_client import GitHubClient
 from .utils.provisioner import RepoProvisioner
@@ -23,14 +25,10 @@ class BenchmarkRunner:
         workflow_path = os.path.join(
             self.workspace_dir, "src/benchmark/workflows", workflow_id, "workflow.yml"
         )
-        scenario_path = os.path.join(
-            self.workspace_dir, "src/benchmark/scenarios", scenario_id
-        )
+        scenario_path = os.path.join(self.workspace_dir, "src/benchmark/scenarios", scenario_id)
 
         if not os.path.exists(workflow_path) or not os.path.exists(scenario_path):
-            return {
-                "error": f"Workflow ({workflow_id}) or scenario ({scenario_id}) not found."
-            }
+            return {"error": f"Workflow ({workflow_id}) or scenario ({scenario_id}) not found."}
 
         # 1. Load scenario
         scenario = self._load_scenario(scenario_path)
@@ -39,31 +37,39 @@ class BenchmarkRunner:
 
         try:
             # 2. Provision Infrastructure
-            print(f"Provisioning repository {self.repo}...")
-            self.provisioner.provision(workflow_path, scenario.get_required_files())
+            # Scenarios can define a target branch for their files
+            target_branch = getattr(scenario, "branch", None)
+            click.echo(f"Provisioning repository {self.repo}...")
+            self.provisioner.provision(
+                workflow_path, scenario.get_required_files(), branch=target_branch
+            )
 
             # 3. Prepare Dynamic State (Issues/PRs)
-            print(f"Preparing repository state for scenario '{scenario_id}'...")
+            click.echo(f"Preparing repository state for scenario '{scenario_id}'...")
             scenario.setup_state(self.gh_client)
 
             # 4. Trigger Workflow via GitHub CLI
             scenario_event = scenario.get_event()
-            print(f"Triggering workflow '{workflow_id}' on GitHub...")
+            # Sleep to ensure all provisioned files are visible to GraphQL/Actions
+            import time
+
+            time.sleep(3)
+            click.echo(f"Triggering workflow '{workflow_id}' on GitHub...")
             start_time = time.time()
-            trigger_result = self._trigger_event(scenario_event)
-            if not trigger_result:
-                return {"error": "Failed to trigger GitHub event."}
+            trigger_success, trigger_error = self._trigger_event(scenario_event)
+            if not trigger_success:
+                return {"error": f"Failed to trigger GitHub event: {trigger_error}"}
 
             # 5. Poll for completion
-            print("Waiting for workflow run to complete...")
-            run_id = self._poll_for_completion(workflow_id, start_time)
+            click.echo("Waiting for workflow run to complete...")
+            # Use the workflow folder name for polling
+            workflow_filename = f"{workflow_id}.yml"
+            run_id = self._poll_for_completion(workflow_filename, start_time)
             if not run_id:
-                return {
-                    "error": "Timed out waiting for workflow run or could not find it."
-                }
+                return {"error": "Timed out waiting for workflow run or could not find it."}
 
             # 6. Fetch logs
-            print(f"Fetching logs for run {run_id}...")
+            click.echo(f"Fetching logs for run {run_id}...")
             stdout, stderr = self._get_workflow_logs(run_id)
 
             run_result = {"stdout": stdout, "stderr": stderr, "exit_code": 0}
@@ -78,11 +84,11 @@ class BenchmarkRunner:
                 "message": f"Successfully executed and analyzed run {run_id}.",
             }
         finally:
-            print(f"Cleaning up repository state for scenario '{scenario_id}'...")
+            click.echo(f"Cleaning up repository state for scenario '{scenario_id}'...")
             scenario.teardown_state(self.gh_client)
 
     def _trigger_event(self, scenario_event):
-        """Triggers a GitHub event (Issue/PR) to start the workflow."""
+        """Triggers a GitHub event (Issue/PR/Comment) to start the workflow."""
         event_type = scenario_event.get("event_type")
         data = scenario_event.get("data", {})
 
@@ -98,7 +104,8 @@ class BenchmarkRunner:
                 ]
             )
             if "https://github.com/" in stdout:
-                return True
+                return True, None
+            return False, stderr
         elif event_type == "pull_request":
             stdout, stderr = self.gh_client.run_gh(
                 [
@@ -108,12 +115,47 @@ class BenchmarkRunner:
                     data.get("title", "Test PR"),
                     "--body",
                     data.get("body", "Test Body"),
+                    "--head",
+                    data.get("head", "main"),
+                    "--base",
+                    data.get("base", "main"),
                 ]
             )
             if "https://github.com/" in stdout:
-                return True
+                return True, None
+            return False, stderr
+        elif event_type == "issue_comment":
+            # For comments, we need an existing issue or PR.
+            # Scenarios using this should have created it in setup_state.
+            # We look for the most recent PR/Issue if number isn't provided.
+            target_number = data.get("number")
+            if not target_number:
+                # Try to find the PR created in setup_state
+                stdout, _ = self.gh_client.run_gh(
+                    ["pr", "list", "--limit", "1", "--json", "number"]
+                )
+                import json
 
-        return False
+                prs = json.loads(stdout) if stdout else []
+                if prs:
+                    target_number = prs[0]["number"]
+
+            if target_number:
+                stdout, stderr = self.gh_client.run_gh(
+                    [
+                        "pr",
+                        "comment",
+                        str(target_number),
+                        "--body",
+                        data.get("body", "/review"),
+                    ]
+                )
+                if stderr and "error" in stderr.lower():
+                    return False, stderr
+                return True, None
+            return False, "Could not find a target PR/Issue for the comment."
+
+        return False, f"Unknown event type: {event_type}"
 
     def _load_scenario(self, scenario_path):
         """Loads a Python scenario class."""
@@ -136,9 +178,8 @@ class BenchmarkRunner:
                     return attr(self.workspace_dir)
         return None
 
-    def _poll_for_completion(self, workflow_id, start_time, timeout=600):
+    def _poll_for_completion(self, workflow_filename, start_time, timeout=600):
         """Polls the GitHub API until the workflow run finishes."""
-        filename = "workflow.yml"
         elapsed = 0
         while elapsed < timeout:
             stdout, _ = self.gh_client.run_gh(
@@ -146,7 +187,7 @@ class BenchmarkRunner:
                     "run",
                     "list",
                     "--workflow",
-                    filename,
+                    workflow_filename,
                     "--json",
                     "databaseId,status,conclusion,createdAt",
                     "--limit",
@@ -161,8 +202,8 @@ class BenchmarkRunner:
                     if run["status"] == "completed":
                         return run["databaseId"]
 
-            time.sleep(10)
-            elapsed += 10
+            time.sleep(3)
+            elapsed += 3
 
         return None
 
