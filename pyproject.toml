@@ -11,7 +11,6 @@ dependencies = [
     "pyyaml>=6.0.3",
     "requests>=2.32.5",
     "rich>=14.3.3",
-    "sequrity>=0.4.2",
 ]
 
 [dependency-groups]
@@ -21,7 +20,7 @@ dev = [
 ]
 
 [tool.ruff]
-line-length = 100
+line-length = 120
 target-version = "py313"
 
 [tool.ruff.lint]

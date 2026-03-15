@@ -40,13 +40,12 @@ class GitHubClient:
             if "not authenticated" in low_stderr:
                 click.echo(
                     click.style(
-                        "Error: GitHub CLI is not authenticated. Please run 'gh auth login' "
-                        "or set GITHUB_TOKEN.",
+                        "Error: GitHub CLI is not authenticated. Please run 'gh auth login' " "or set GITHUB_TOKEN.",
                         fg="red",
                     ),
                     err=True,
                 )
-                return last_stdout, last_stderr
+                return None, last_stderr
 
             # Common sync issues
             retryable_errors = [
@@ -65,7 +64,7 @@ class GitHubClient:
 
             break
 
-        return last_stdout, last_stderr
+        return None, last_stderr
 
     def get_repo_info(self):
         """Fetches repository information using the GitHub API."""
@@ -73,9 +72,7 @@ class GitHubClient:
         stdout, _ = self.run_gh(["api", "repos/{owner}/{repo}"], retry_404=False)
         if not stdout:
             # Fallback to repo view just in case
-            stdout, _ = self.run_gh(
-                ["repo", "view", "--json", "defaultBranchRef,isEmpty,name,owner"], retry_404=False
-            )
+            stdout, _ = self.run_gh(["repo", "view", "--json", "defaultBranchRef,isEmpty,name,owner"], retry_404=False)
 
         if not stdout:
             return None
@@ -199,9 +196,7 @@ class GitHubClient:
 
     def get_pr_details(self, pr_number):
         """Fetches details of a Pull Request."""
-        stdout, _ = self.run_gh(
-            ["pr", "view", str(pr_number), "--json", "title,body,state,comments"]
-        )
+        stdout, _ = self.run_gh(["pr", "view", str(pr_number), "--json", "title,body,state,comments"])
         if not stdout:
             return {}
         try:
@@ -211,9 +206,7 @@ class GitHubClient:
 
     def get_issue_details(self, issue_number):
         """Fetches details of an Issue."""
-        stdout, _ = self.run_gh(
-            ["issue", "view", str(issue_number), "--json", "title,body,state,comments"]
-        )
+        stdout, _ = self.run_gh(["issue", "view", str(issue_number), "--json", "title,body,state,comments"])
         if not stdout:
             return {}
         try:
