@@ -1,3 +1,5 @@
+import click
+
 from src.benchmark.scenario_base import AbstractScenario
 
 
@@ -27,7 +29,7 @@ class IssueDuplicateBug(AbstractScenario):
         issues = json.loads(stdout) if stdout else []
 
         if not issues:
-            print("Creating original issue for deduplication scenario...")
+            click.echo("Creating original issue for deduplication scenario...")
             gh_client.run_gh(
                 [
                     "issue",
@@ -45,7 +47,7 @@ class IssueDuplicateBug(AbstractScenario):
             )
 
     def teardown_state(self, gh_client):
-        """Closes all issues related to this scenario."""
+        """Deletes all issues related to this scenario."""
         stdout, _ = gh_client.run_gh(
             [
                 "issue",
@@ -53,7 +55,7 @@ class IssueDuplicateBug(AbstractScenario):
                 "--search",
                 "Application crashes on startup on macOS",
                 "--state",
-                "open",
+                "all",
                 "--json",
                 "number",
             ]
@@ -63,8 +65,8 @@ class IssueDuplicateBug(AbstractScenario):
         issues = json.loads(stdout) if stdout else []
 
         for issue in issues:
-            print(f"Closing issue #{issue['number']}...")
-            gh_client.run_gh(["issue", "close", str(issue["number"])])
+            click.echo(f"Deleting issue #{issue['number']}...")
+            gh_client.run_gh(["issue", "delete", str(issue["number"]), "--confirm"])
 
     def get_event(self):
         return {

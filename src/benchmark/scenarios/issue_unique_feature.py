@@ -1,3 +1,5 @@
+import click
+
 from src.benchmark.scenario_base import AbstractScenario
 
 
@@ -12,7 +14,7 @@ class IssueUniqueFeature(AbstractScenario):
         pass
 
     def teardown_state(self, gh_client):
-        """Closes the unique issue created during the run."""
+        """Deletes the unique issue created during the run."""
         stdout, _ = gh_client.run_gh(
             [
                 "issue",
@@ -20,7 +22,7 @@ class IssueUniqueFeature(AbstractScenario):
                 "--search",
                 "Add support for custom themes",
                 "--state",
-                "open",
+                "all",
                 "--json",
                 "number",
             ]
@@ -30,8 +32,8 @@ class IssueUniqueFeature(AbstractScenario):
         issues = json.loads(stdout) if stdout else []
 
         for issue in issues:
-            print(f"Closing issue #{issue['number']}...")
-            gh_client.run_gh(["issue", "close", str(issue["number"])])
+            click.echo(f"Deleting issue #{issue['number']}...")
+            gh_client.run_gh(["issue", "delete", str(issue["number"]), "--confirm"])
 
     def get_event(self):
         return {
