@@ -9,5 +9,7 @@ wheels/
 # Virtual environments
 .venv
 references/
-plans/
+plans/*
+!plans/architecture.md
+!plans/concerns.md
 notebooks/
