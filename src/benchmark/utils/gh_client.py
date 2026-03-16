@@ -13,7 +13,7 @@ class GitHubClient:
     def __init__(self, repo="owner/repo"):
         self.repo = repo
 
-    def run_gh(self, args, retries=3, delay=3, use_repo=True, retry_404=True):
+    def run_gh(self, args, retries=3, delay=1, use_repo=True, retry_404=True):
         """Runs a generic gh command and returns the output with retries for sync issues."""
         cmd = ["gh"] + args
 
@@ -125,8 +125,7 @@ class GitHubClient:
         if stderr and "delete_repo" in stderr:
             click.echo(
                 click.style(
-                    "\nERROR: Missing 'delete_repo' scope. Please run:\n"
-                    "  gh auth refresh -h github.com -s delete_repo\n",
+                    "\nERROR: Missing 'delete_repo' scope. Please run:\n" "  gh auth refresh -h github.com -s delete_repo\n",
                     fg="yellow",
                     bold=True,
                 )
@@ -240,7 +239,7 @@ class GitHubClient:
         except json.JSONDecodeError:
             return {}
 
-    def list_files(self, branch=None, retries=5, delay=3):
+    def list_files(self, branch=None, retries=5, delay=1):
         """Lists files in a specific branch with retries for eventual consistency."""
         if branch:
             for i in range(retries):

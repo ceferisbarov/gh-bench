@@ -80,7 +80,7 @@ class BenchmarkRunner:
 
             # 4. Trigger Workflow via GitHub CLI
             # Sleep to ensure all provisioned files are visible to GraphQL/Actions
-            time.sleep(3)
+            time.sleep(1)
             click.echo(f"Triggering workflow '{workflow_id}' on GitHub...")
             start_time = time.time()
             trigger_success, trigger_error = self._trigger_event(scenario)
@@ -215,7 +215,7 @@ class BenchmarkRunner:
     def _poll_for_completion(self, workflow_filename, start_time, timeout=600):
         """Polls the GitHub API until the workflow run finishes with exponential backoff."""
         elapsed = 0
-        interval = 5
+        interval = 2
         max_interval = 30
         from datetime import datetime, timezone
 
