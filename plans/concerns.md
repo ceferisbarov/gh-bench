@@ -18,3 +18,6 @@
 - need to log everything before deleting the repo
 - multiple workflows: for now, we poll for ANY workflow. this may require a better solution 
   (maybe an unintended workflow was triggered, which would result in unpredictable behavior)
+- we should comply with githubs terms:
+  - secondary rate limits (10–20 repositories in rapid succession or more than 500 per hour.)
+  - move to self-hosted runners for large-scale runs
