@@ -213,8 +213,10 @@ class BenchmarkRunner:
         return None
 
     def _poll_for_completion(self, workflow_filename, start_time, timeout=600):
-        """Polls the GitHub API until the workflow run finishes."""
+        """Polls the GitHub API until the workflow run finishes with exponential backoff."""
         elapsed = 0
+        interval = 5
+        max_interval = 30
         from datetime import datetime, timezone
 
         while elapsed < timeout:
@@ -232,16 +234,19 @@ class BenchmarkRunner:
             )
 
             if stdout:
-                runs = json.loads(stdout)
-                for run in runs:
-                    # Parse createdAt: "2023-10-27T16:21:52Z"
-                    created_at = datetime.strptime(run["createdAt"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
-                    if created_at.timestamp() > start_time - 10:  # 10s buffer for clock skew
-                        if run["status"] == "completed":
-                            return run["databaseId"]
+                try:
+                    runs = json.loads(stdout)
+                    for run in runs:
+                        created_at = datetime.strptime(run["createdAt"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+                        if created_at.timestamp() > start_time - 30:  # Increased buffer for clock skew
+                            if run["status"] == "completed":
+                                return run["databaseId"]
+                except (json.JSONDecodeError, ValueError):
+                    pass
 
-            time.sleep(3)
-            elapsed += 10
+            time.sleep(interval)
+            elapsed += interval
+            interval = min(interval * 1.5, max_interval)
 
         return None
 
