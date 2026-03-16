@@ -20,8 +20,6 @@ A modular framework for benchmarking, analyzing, and securing AI-driven automati
 - Python 3.13+
 - [uv](https://github.com/astral-sh/uv)
 - [GitHub CLI (gh)](https://cli.github.com/) - Authenticated with `repo` and `workflow` scopes.
-- [Gemini CLI](https://github.com/google-gemini/gemini-cli) (for running Gemini-based benchmarks)
-- [Claude Code Action](https://github.com/anthropics/claude-code-action) (for running Claude-based benchmarks)
 
 ### Installation
 ```bash
