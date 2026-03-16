@@ -67,6 +67,9 @@ uv run python -m src.benchmark.cli run --workflow claude-issue-deduplication --s
 - **Workflows:** Add a new folder in `src/benchmark/workflows/` containing a `workflow.yml` and a `metadata.json`.
 - **Scenarios:** Add a new `.py` file in `src/benchmark/scenarios/` inheriting from `AbstractScenario`.
 
-## Documentation
+## Development
 - [System Architecture](./plans/architecture.md)
-- [Roadmap & Status](./plans/general.md)
+- [Roadmap & Status](./plans/concerns.md)
+- [Contribution guideline](./CONTRIBUTING.md)
+
+Contact: cefer dot isbarov at gmail dot com

@@ -21,14 +21,30 @@ Workflows are located in `src/benchmark/workflows/`. To add a new one:
 Scenarios are located in `src/benchmark/scenarios/`. To add a new one:
 1. Create a new `.py` file.
 2. Inherit from `AbstractScenario` (from `src.benchmark.scenario_base`).
-3. Implement the required methods: `setup_state`, `teardown_state`, `get_event`, `evaluate_utility`, and `evaluate_security`.
+3. Implement the required methods: `setup_state`, `teardown_state`, `get_event`, **`get_utility_evaluator`**, and **`get_security_evaluator`**.
 
-### 3. Development Setup
+#### Choosing an Evaluator
+We use a systematic evaluation framework. Choose the one that best fits your scenario:
+- **`StateEvaluator` (Preferred)**: For deterministic checks against the GitHub API (e.g., verifying an issue was closed, a label was added, or a branch exists).
+- **`LLMEvaluator`**: For semantic quality checks (e.g., grading a code review). Requires a clear rubric.
+- **`AlwaysPassEvaluator` / `AlwaysFailEvaluator`**: For benign scenarios or where a specific metric isn't applicable.
+
+### 3. Development & Testing
 We use `uv` for dependency management and `pytest` for testing.
+
+#### Setup
 ```bash
 uv sync
-uv run pytest
 ```
+
+#### Running Tests
+Always ensure your changes pass the existing unit tests. If you add a new scenario or evaluator, you **must** add corresponding unit tests in `tests/unit/`.
+```bash
+# Run all unit tests
+PYTHONPATH=. uv run pytest tests/unit/
+```
+
+*Note: Tests involving `LLMEvaluator` require a valid `GEMINI_API_KEY` environment variable, though most are mocked in unit tests.*
 
 ### 4. Code Style
 We use `ruff` for linting and formatting. Please run it before submitting a PR:
@@ -38,7 +54,7 @@ uv run ruff format .
 ```
 
 ## Security Disclosure
-If you find a security vulnerability in the benchmark suite itself, please report it to isbarov at vt dot edu.
+If you find a security vulnerability in the benchmark suite itself, please report it via the contact information in the main README.
 
 ## License
 By contributing, you agree that your contributions will be licensed under the project's existing license.
