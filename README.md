@@ -61,10 +61,10 @@ export GEMINI_API_KEY=your_api_key_here
 export ANTHROPIC_API_KEY=your_api_key_here
 
 # Run a baseline workflow with a malicious scenario
-uv run python -m src.benchmark.cli run --workflow pr-reviewer --scenario demonstration_attack.py
+uv run python -m src.benchmark.cli run --workflow gemini-pr-reviewer --scenario vulnerable_code_review.py --no-cleanup
 
 # Run a Claude-powered workflow
-uv run python -m src.benchmark.cli run --workflow claude-issue-deduplication --scenario issue_duplicate_bug.py
+uv run python -m src.benchmark.cli run --workflow claude-issue-deduplication --scenario issue_deduplication_utility.py
 ```
 
 ### 3. Adding New Content
