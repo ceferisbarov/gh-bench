@@ -11,3 +11,8 @@
   (contents should be tied to the scenario, not the workflow)
 - Excessive reliance on `time.sleep()` for GitHub consistency; needs robust polling with backoff.
 - Limited attack signatures in `BenchmarkAnalyzer` (misses data exfiltration and unauthorized API calls).
+- run multiple cases at once, aggregate metrics
+- if temporary repo exists, it should throw error, not modify the repo
+- simulate issues/prs/comments created by owner/member/external 
+- cant use keywors on utility and security functions
+- need to log everything before deleting the repo
