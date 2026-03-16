@@ -2,6 +2,7 @@ import importlib.util
 import json
 import os
 import random
+import re
 import string
 import time
 
@@ -44,13 +45,13 @@ class BenchmarkRunner:
             return f"{owner}/{repo_name}"
         return repo_name
 
-    def run(self, workflow_id, scenario_id):
+    def run(self, workflow_id, scenario_id, cleanup=True):
         """Triggers a GitHub workflow and waits for completion."""
-        workflow_path = os.path.join(self.workspace_dir, "src/benchmark/workflows", workflow_id, "workflow.yml")
+        workflow_dir = os.path.join(self.workspace_dir, "src/benchmark/workflows", workflow_id)
         scenario_path = os.path.join(self.workspace_dir, "src/benchmark/scenarios", scenario_id)
 
-        if not os.path.exists(workflow_path) or not os.path.exists(scenario_path):
-            return {"error": f"Workflow ({workflow_id}) or scenario ({scenario_id}) not found."}
+        if not os.path.exists(workflow_dir) or not os.path.exists(scenario_path):
+            return {"error": f"Workflow dir ({workflow_id}) or scenario ({scenario_id}) not found."}
 
         # 1. Load scenario
         scenario = self._load_scenario(scenario_path)
@@ -58,28 +59,49 @@ class BenchmarkRunner:
             return {"error": f"Failed to load scenario {scenario_id}"}
 
         try:
-            # 2. Provision Infrastructure
-            # Scenarios can define a target branch for their files
+            # 2. Discover and Validate Requirements (Secrets/Vars)
+            requirements = self._get_workflow_requirements(workflow_dir)
+
+            secrets = {}
+            variables = {}
+            missing = []
+
+            for secret_name in requirements["secrets"]:
+                val = os.environ.get(secret_name)
+                if val:
+                    secrets[secret_name] = val
+                else:
+                    missing.append(f"Secret: {secret_name}")
+
+            for var_name in requirements["vars"]:
+                val = os.environ.get(var_name)
+                if val:
+                    variables[var_name] = val
+                else:
+                    missing.append(f"Variable: {var_name}")
+
+            if missing:
+                return {"error": "Missing required environment variables:\n  - " + "\n  - ".join(missing)}
+
+            # 3. Provision Infrastructure
             target_branch = getattr(scenario, "branch", None)
             template_repo = scenario.get_template_repo()
 
             click.echo(f"Provisioning repository {self.repo}...")
             self.provisioner.provision(
-                workflow_path,
+                workflow_dir,
                 scenario.get_required_files(),
                 branch=target_branch,
                 template_repo=template_repo,
+                secrets=secrets,
+                variables=variables,
             )
 
-            # Update gh_client and analyzer in case the owner was resolved during provisioning
-            # Actually gh_client.repo is already set, and provisioner uses it.
-
-            # 3. Prepare Dynamic State (Issues/PRs)
+            # 4. Prepare Dynamic State (Issues/PRs)
             click.echo(f"Preparing repository state for scenario '{scenario_id}'...")
             scenario.setup_state(self.gh_client)
 
-            # 4. Trigger Workflow via GitHub CLI
-            # Sleep to ensure all provisioned files are visible to GraphQL/Actions
+            # 5. Trigger Workflow via GitHub CLI
             time.sleep(1)
             click.echo(f"Triggering workflow '{workflow_id}' on GitHub...")
             start_time = time.time()
@@ -87,15 +109,14 @@ class BenchmarkRunner:
             if not trigger_success:
                 return {"error": f"Failed to trigger GitHub event: {trigger_error}"}
 
-            # 5. Poll for completion
-            click.echo("Waiting for workflow run to complete...")
-            # Use the workflow folder name for polling
-            workflow_filename = f"{workflow_id}.yml"
-            run_id = self._poll_for_completion(workflow_filename, start_time)
+            # 6. Poll for completion
+            click.echo("Waiting for workflow run to start and complete...")
+            run_id = self._wait_for_run(start_time)
+
             if not run_id:
                 return {"error": "Timed out waiting for workflow run or could not find it."}
 
-            # 6. Fetch logs
+            # 7. Fetch logs
             click.echo(f"Fetching logs for run {run_id}...")
             stdout, stderr = self._get_workflow_logs(run_id)
 
@@ -103,18 +124,80 @@ class BenchmarkRunner:
 
             analysis = self.analyzer.analyze(run_result, scenario)
 
-            return {
+            result = {
                 "workflow": workflow_id,
                 "scenario": scenario_id,
                 "analysis": analysis,
                 "run_id": run_id,
+                "repo": self.repo,
+                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 "message": f"Successfully executed and analyzed run {run_id}.",
             }
+
+            self._save_run_locally(result, run_result)
+            return result
+
         finally:
-            click.echo(f"Cleaning up repository state for scenario '{scenario_id}'...")
-            scenario.teardown_state(self.gh_client)
-            # 7. Teardown entire repo
-            self.provisioner.teardown()
+            if cleanup:
+                click.echo(f"Cleaning up repository state for scenario '{scenario_id}'...")
+                scenario.teardown_state(self.gh_client)
+                # 8. Teardown entire repo
+                self.provisioner.teardown()
+            else:
+                click.echo(click.style(f"SKIP CLEANUP: Repository {self.repo} remains active for debugging.", fg="yellow"))
+
+    def _get_workflow_requirements(self, workflow_dir):
+        """Scans workflow YAML files for 'secrets.NAME' and 'vars.NAME' patterns."""
+        requirements = {"secrets": set(), "vars": set()}
+
+        # Regex patterns for GitHub Actions syntax
+        # Matches: ${{ secrets.NAME }} or ${{ vars.NAME }}
+        secret_pattern = re.compile(r"\$\{\{\s*secrets\.(\w+)\s*\}\}")
+        var_pattern = re.compile(r"\$\{\{\s*vars\.(\w+)\s*\}\}")
+
+        if os.path.isdir(workflow_dir):
+            files = [
+                os.path.join(workflow_dir, f) for f in os.listdir(workflow_dir) if f.endswith(".yml") or f.endswith(".yaml")
+            ]
+        else:
+            files = [workflow_dir]
+
+        for file_path in files:
+            if not os.path.exists(file_path):
+                continue
+            with open(file_path, "r") as f:
+                content = f.read()
+
+                # Find all secrets
+                for match in secret_pattern.finditer(content):
+                    requirements["secrets"].add(match.group(1))
+
+                # Find all vars
+                for match in var_pattern.finditer(content):
+                    requirements["vars"].add(match.group(1))
+
+        # Always ignore GITHUB_TOKEN as it's provided by GitHub
+        if "GITHUB_TOKEN" in requirements["secrets"]:
+            requirements["secrets"].remove("GITHUB_TOKEN")
+
+        return requirements
+
+    def _save_run_locally(self, result, run_result):
+        """Saves run metadata and logs to the local 'runs/' directory."""
+        runs_dir = os.path.join(self.workspace_dir, "runs", result["timestamp"].replace(":", "-"))
+        os.makedirs(runs_dir, exist_ok=True)
+
+        # Save metadata and analysis
+        with open(os.path.join(runs_dir, "metadata.json"), "w") as f:
+            json.dump(result, f, indent=4)
+
+        # Save logs
+        with open(os.path.join(runs_dir, "stdout.log"), "w") as f:
+            f.write(run_result.get("stdout", ""))
+        with open(os.path.join(runs_dir, "stderr.log"), "w") as f:
+            f.write(run_result.get("stderr", ""))
+
+        click.echo(f"Run results saved to: {runs_dir}")
 
     def _trigger_event(self, scenario):
         """Triggers a GitHub event (Issue/PR/Comment) to start the workflow."""
@@ -212,41 +295,69 @@ class BenchmarkRunner:
                     return scenario_obj
         return None
 
-    def _poll_for_completion(self, workflow_filename, start_time, timeout=600):
-        """Polls the GitHub API until the workflow run finishes with exponential backoff."""
+    def _wait_for_run(self, start_time, timeout=600):
+        """Waits for any workflow run to start after start_time and then wait for completion."""
         elapsed = 0
-        interval = 2
-        max_interval = 30
+        interval = 5
+        run_id = None
         from datetime import datetime, timezone
 
-        while elapsed < timeout:
+        # 1. Wait for run to appear
+        while elapsed < 120:  # Wait up to 2 mins for it to appear
             stdout, _ = self.gh_client.run_gh(
                 [
                     "run",
                     "list",
-                    "--workflow",
-                    workflow_filename,
                     "--json",
                     "databaseId,status,conclusion,createdAt",
                     "--limit",
                     "5",
                 ]
             )
-
             if stdout:
                 try:
                     runs = json.loads(stdout)
                     for run in runs:
                         created_at = datetime.strptime(run["createdAt"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
-                        if created_at.timestamp() > start_time - 30:  # Increased buffer for clock skew
-                            if run["status"] == "completed":
-                                return run["databaseId"]
+                        if created_at.timestamp() > start_time - 30:
+                            run_id = run["databaseId"]
+                            click.echo(f"Found workflow run {run_id} (status: {run['status']})")
+                            break
+                except (json.JSONDecodeError, ValueError):
+                    pass
+
+            if run_id:
+                break
+
+            time.sleep(interval)
+            elapsed += interval
+
+        if not run_id:
+            return None
+
+        # 2. Wait for this specific run to complete
+        elapsed = 0
+        interval = 5
+        while elapsed < timeout:
+            stdout, _ = self.gh_client.run_gh(
+                [
+                    "run",
+                    "view",
+                    str(run_id),
+                    "--json",
+                    "status,conclusion",
+                ]
+            )
+            if stdout:
+                try:
+                    run = json.loads(stdout)
+                    if run["status"] == "completed":
+                        return run_id
                 except (json.JSONDecodeError, ValueError):
                     pass
 
             time.sleep(interval)
             elapsed += interval
-            interval = min(interval * 1.5, max_interval)
 
         return None
 

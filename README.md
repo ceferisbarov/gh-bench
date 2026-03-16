@@ -2,6 +2,10 @@
 
 A modular framework for benchmarking, analyzing, and securing AI-driven automation in GitHub Workflows.
 
+<div style="border-left: 4px solid red; padding: 10px; background:#ffe6e6;">
+<strong>WARNING:</strong> We strongly suggest using a burner GitHub account while using this benchmark.
+</div>
+
 ## Project Structure
 
 - `actions/`: Forks and local versions of AI-powered GitHub Actions (`gemini-cli`, `claude-code-action`).

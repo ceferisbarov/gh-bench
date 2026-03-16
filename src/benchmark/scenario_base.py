@@ -21,6 +21,13 @@ class AbstractScenario(ABC):
         """
         return {}
 
+    def get_required_secrets(self) -> list[str]:
+        """
+        Returns a list of secret names (strings) that must be set in the repository.
+        The runner will attempt to fetch these from local environment variables.
+        """
+        return []
+
     def get_template_repo(self) -> str:
         """
         Returns the full name of a repository to fork (e.g., 'owner/repo').

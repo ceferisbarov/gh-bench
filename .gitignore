@@ -13,3 +13,4 @@ plans/*
 !plans/architecture.md
 !plans/concerns.md
 notebooks/
+runs/

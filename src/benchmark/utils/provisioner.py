@@ -14,12 +14,14 @@ class RepoProvisioner:
 
     def provision(
         self,
-        workflow_path: str,
+        workflow_dir: str,
         required_files: dict = None,
         branch: str = None,
         template_repo: str = None,
+        secrets: dict = None,
+        variables: dict = None,
     ):
-        """Ensures the repo exists (via fork or creation), and has the necessary files."""
+        """Ensures the repo exists (via fork or creation), and has the necessary files, secrets, and variables."""
         # 1. Ensure repo exists and get default branch
         repo_info = self._ensure_repo_exists(template_repo=template_repo)
         if repo_info is None or "error" in repo_info:
@@ -29,24 +31,33 @@ class RepoProvisioner:
         default_branch = repo_info.get("defaultBranchRef", {}).get("name") or "main"
         target_branch = branch or default_branch
 
-        # 2. Sync Workflow (always to default branch so it's active)
-        if os.path.exists(workflow_path):
-            with open(workflow_path, "r") as f:
+        # 2. Sync All Workflows in the directory
+        if os.path.isdir(workflow_dir):
+            for filename in os.listdir(workflow_dir):
+                if filename.endswith(".yml") or filename.endswith(".yaml"):
+                    workflow_path = os.path.join(workflow_dir, filename)
+                    with open(workflow_path, "r") as f:
+                        content = f.read()
+
+                    remote_workflow_path = f".github/workflows/{filename}"
+
+                    click.echo(f"Syncing workflow {filename} to {remote_workflow_path} on {default_branch}...")
+                    success, err = self.gh_client.put_file(
+                        remote_workflow_path,
+                        content,
+                        f"sync workflow {filename}",
+                        default_branch,
+                    )
+                    if not success:
+                        click.echo(click.style(f"Failed to sync workflow {filename}: {err}", fg="red"))
+        elif os.path.isfile(workflow_dir):
+            # Backward compatibility for single file path
+            with open(workflow_dir, "r") as f:
                 content = f.read()
-
-            # Use the directory name as the workflow filename
-            workflow_dir_name = os.path.basename(os.path.dirname(workflow_path))
-            remote_workflow_path = f".github/workflows/{workflow_dir_name}.yml"
-
-            click.echo(f"Syncing workflow to {remote_workflow_path} on {default_branch}...")
-            success, err = self.gh_client.put_file(
-                remote_workflow_path,
-                content,
-                "sync workflow",
-                default_branch,
-            )
-            if not success:
-                click.echo(click.style(f"Failed to sync workflow: {err}", fg="red"))
+            filename = os.path.basename(workflow_dir)
+            remote_workflow_path = f".github/workflows/{filename}"
+            click.echo(f"Syncing workflow {filename} to {remote_workflow_path} on {default_branch}...")
+            self.gh_client.put_file(remote_workflow_path, content, f"sync workflow {filename}", default_branch)
 
         # 3. Ensure target branch exists if it's different from default
         if target_branch != default_branch:
@@ -70,6 +81,24 @@ class RepoProvisioner:
                 success, err = self.gh_client.put_file(repo_path, content, f"sync {repo_path}", target_branch)
                 if not success:
                     click.echo(click.style(f"Failed to sync file {repo_path}: {err}", fg="red"))
+
+        # 5. Set Repository Secrets
+        if secrets:
+            for name, value in secrets.items():
+                if value:
+                    click.echo(f"Setting repository secret '{name}'...")
+                    success, err = self.gh_client.set_secret(name, value)
+                    if not success:
+                        click.echo(click.style(f"Failed to set secret {name}: {err}", fg="red"))
+
+        # 6. Set Repository Variables
+        if variables:
+            for name, value in variables.items():
+                if value:
+                    click.echo(f"Setting repository variable '{name}'...")
+                    success, err = self.gh_client.set_variable(name, value)
+                    if not success:
+                        click.echo(click.style(f"Failed to set variable {name}: {err}", fg="red"))
 
     def teardown(self):
         """Deletes the entire repository."""

@@ -282,6 +282,30 @@ class GitHubClient:
         except json.JSONDecodeError:
             return []
 
+    def set_secret(self, name, value):
+        """Sets a repository secret."""
+        # Using --body to set the secret value
+        cmd = ["secret", "set", name, "--body", value]
+        stdout, stderr = self.run_gh(cmd)
+        return stdout is not None, stderr
+
+    def set_variable(self, name, value):
+        """Sets a repository variable."""
+        # Using --body to set the variable value
+        cmd = ["variable", "set", name, "--body", value]
+        stdout, stderr = self.run_gh(cmd)
+        return stdout is not None, stderr
+
+    def list_repos(self, limit=100):
+        """Lists repositories for the authenticated user."""
+        stdout, _ = self.run_gh(["repo", "list", "--limit", str(limit), "--json", "name,nameWithOwner"], use_repo=False)
+        if not stdout:
+            return []
+        try:
+            return json.loads(stdout)
+        except json.JSONDecodeError:
+            return []
+
     def get_workflow_runs(self, workflow_id):
         """Fetches recent runs of a specific workflow."""
         stdout, _ = self.run_gh(
