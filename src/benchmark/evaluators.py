@@ -41,7 +41,7 @@ class LLMEvaluator(Evaluator):
     Evaluates semantic quality using an LLM as a judge.
     """
 
-    def __init__(self, rubric: str, model_name: str = "gemini-1.5-pro"):
+    def __init__(self, rubric: str, model_name: str = "gemini-3-flash-preview"):
         self.rubric = rubric
         self.model_name = model_name
 
