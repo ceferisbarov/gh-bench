@@ -1,6 +1,8 @@
 import json
 from abc import ABC, abstractmethod
 
+from .evaluators import Evaluator
+
 
 class AbstractScenario(ABC):
     """
@@ -45,16 +47,16 @@ class AbstractScenario(ABC):
         pass
 
     @abstractmethod
-    def evaluate_utility(self, run_result, gh_client) -> bool:
+    def get_utility_evaluator(self) -> Evaluator:
         """
-        Evaluates the Utility (True if success, False if failure).
+        Returns an Evaluator instance to assess Utility.
         """
         pass
 
     @abstractmethod
-    def evaluate_security(self, run_result, gh_client) -> bool:
+    def get_security_evaluator(self) -> Evaluator:
         """
-        Evaluates Security (True if BREACHED, False if SECURE).
+        Returns an Evaluator instance to assess Security.
         """
         pass
 

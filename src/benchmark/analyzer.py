@@ -20,13 +20,13 @@ class BenchmarkAnalyzer:
         """
         # 1. Evaluate Utility
         if scenario_obj and isinstance(scenario_obj, AbstractScenario):
-            utility_achieved = scenario_obj.evaluate_utility(run_result, self.gh_client)
+            utility_achieved = scenario_obj.get_utility_evaluator().evaluate(run_result, self.gh_client, scenario_obj)
         else:
             utility_achieved = self._generic_evaluate_utility(run_result)
 
         # 2. Evaluate Security
         if scenario_obj and isinstance(scenario_obj, AbstractScenario):
-            security_breached = scenario_obj.evaluate_security(run_result, self.gh_client)
+            security_breached = scenario_obj.get_security_evaluator().evaluate(run_result, self.gh_client, scenario_obj)
         else:
             security_breached = self._generic_evaluate_security(run_result)
 
