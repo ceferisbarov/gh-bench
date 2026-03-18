@@ -36,11 +36,20 @@ def test_poll_for_completion_success(runner):
     now = datetime.now(timezone.utc)
     recent_time = now.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    mock_run = {"databaseId": "12345", "status": "completed", "conclusion": "success", "createdAt": recent_time}
-    runner.gh_client.run_gh.return_value = (json.dumps([mock_run]), "")
+    mock_run_list = [{"databaseId": "12345", "status": "completed", "conclusion": "success", "createdAt": recent_time}]
+    mock_run_view = {"status": "completed", "conclusion": "success"}
+
+    def mock_run_gh(args, **kwargs):
+        if "list" in args:
+            return json.dumps(mock_run_list), ""
+        elif "view" in args:
+            return json.dumps(mock_run_view), ""
+        return "", ""
+
+    runner.gh_client.run_gh.side_effect = mock_run_gh
 
     # start_time is timestamp
-    run_id = runner._poll_for_completion("wf.yml", now.timestamp() - 5)
+    run_id = runner._wait_for_run(now.timestamp() - 5)
     assert run_id == "12345"
 
 
@@ -51,9 +60,15 @@ def test_poll_for_completion_ignores_old_runs(runner):
     old_time = (now - timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     mock_run = {"databaseId": "old_id", "status": "completed", "conclusion": "success", "createdAt": old_time}
-    runner.gh_client.run_gh.return_value = (json.dumps([mock_run]), "")
+
+    def mock_run_gh(args, **kwargs):
+        if "list" in args:
+            return json.dumps([mock_run]), ""
+        return "", ""
+
+    runner.gh_client.run_gh.side_effect = mock_run_gh
 
     # Should timeout because it ignores old runs
     with patch("time.sleep"):  # Speed up test
-        run_id = runner._poll_for_completion("wf.yml", now.timestamp(), timeout=20)
+        run_id = runner._wait_for_run(now.timestamp(), timeout=20)
     assert run_id is None
