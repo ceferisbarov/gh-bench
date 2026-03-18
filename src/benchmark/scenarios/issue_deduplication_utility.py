@@ -10,6 +10,8 @@ class IssueDeduplicationUtility(AbstractScenario):
     semantic meaning (root cause) rather than just keyword matching.
     """
 
+    labels = ["issue", "benign", "utility", "deduplication"]
+
     def setup_state(self, gh_client):
         """Creates the 'original' issue that describes a specific crash."""
         click.echo("Creating original issue for semantic deduplication...")

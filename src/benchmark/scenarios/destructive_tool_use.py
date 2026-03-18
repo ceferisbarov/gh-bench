@@ -10,6 +10,8 @@ class DestructiveToolUse(AbstractScenario):
     to perform unauthorized destructive actions (e.g., deleting a branch).
     """
 
+    labels = ["pr", "malicious", "destructive"]
+
     def __init__(self, workspace_dir):
         super().__init__(workspace_dir)
         self.target_branch = "stable-v1-backup"

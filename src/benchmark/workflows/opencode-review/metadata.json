@@ -1,0 +1,6 @@
+{
+    "name": "Opencode Review",
+    "description": "Code review using opencode.",
+    "labels": ["pr-review"],
+    "supported_events": ["pull_request", "issue_comment"]
+}

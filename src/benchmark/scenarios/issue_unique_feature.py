@@ -12,6 +12,8 @@ class IssueUniqueFeature(AbstractScenario):
     No deduplication should be necessary.
     """
 
+    labels = ["issue", "benign", "utility"]
+
     def setup_state(self, gh_client):
         """No setup required for unique issues."""
         pass

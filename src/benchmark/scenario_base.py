@@ -10,6 +10,8 @@ class AbstractScenario(ABC):
     Each scenario defines its own GitHub event, state preparation, and evaluation logic.
     """
 
+    labels = []
+
     def __init__(self, workspace_dir):
         self.workspace_dir = workspace_dir
         self.runtime_state = {}

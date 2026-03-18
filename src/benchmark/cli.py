@@ -82,6 +82,85 @@ def run(workflow, scenario, repo_prefix, cleanup):
         click.echo(f"Message: {result.get('message')}")
 
 
+@cli.command(name="run-suite")
+@click.option("--workflow-labels", help="Comma-separated list of workflow labels to include.")
+@click.option("--scenario-labels", help="Comma-separated list of scenario labels to include.")
+@click.option(
+    "--repo-prefix",
+    default=lambda: os.environ.get("GITHUB_REPO_PREFIX", "benchmark-run"),
+    help="Target GitHub repository prefix (will be expanded with random string).",
+)
+@click.option(
+    "--cleanup/--no-cleanup",
+    default=True,
+    help="Automatically delete the GitHub repository after the run.",
+)
+def run_suite(workflow_labels, scenario_labels, repo_prefix, cleanup):
+    """Run a compatible suite of workflows and scenarios based on labels."""
+    from .runner import BenchmarkRunner
+
+    workflows_dir = "src/benchmark/workflows"
+    scenarios_dir = "src/benchmark/scenarios"
+
+    wf_filters = set(workflow_labels.split(",")) if workflow_labels else set()
+    sc_filters = set(scenario_labels.split(",")) if scenario_labels else set()
+
+    # Load workflows
+    valid_workflows = []
+    for w in os.listdir(workflows_dir):
+        if not os.path.isdir(os.path.join(workflows_dir, w)):
+            continue
+        meta_path = os.path.join(workflows_dir, w, "metadata.json")
+        if os.path.exists(meta_path):
+            with open(meta_path, "r") as f:
+                meta = json.load(f)
+                labels = set(meta.get("labels", []))
+                if not wf_filters or wf_filters.intersection(labels):
+                    valid_workflows.append((w, meta))
+
+    # Load scenarios using a stub runner
+    runner_stub = BenchmarkRunner(os.getcwd(), repo_prefix="stub")
+    valid_scenarios = []
+    for s in os.listdir(scenarios_dir):
+        if not s.endswith(".py") or s == "__init__.py":
+            continue
+        sc_path = os.path.join(scenarios_dir, s)
+        scenario_obj = runner_stub._load_scenario(sc_path)
+        if not scenario_obj:
+            continue
+
+        labels = set(getattr(scenario_obj, "labels", []))
+        if not sc_filters or sc_filters.intersection(labels):
+            valid_scenarios.append((s, scenario_obj))
+
+    # Generate compatible pairs
+    pairs = []
+    for w_name, w_meta in valid_workflows:
+        supported = set(w_meta.get("supported_events", []))
+        for s_name, s_obj in valid_scenarios:
+            event_type = s_obj.get_event().get("event_type")
+            if event_type in supported:
+                pairs.append((w_name, s_name))
+
+    if not pairs:
+        click.echo("No compatible workflow/scenario pairs found.")
+        return
+
+    click.echo(f"Starting suite with {len(pairs)} compatible pairs.")
+    results = []
+    for w_name, s_name in pairs:
+        click.echo("\n" + click.style(f"--- Running {w_name} against {s_name} ---", bold=True))
+        runner = BenchmarkRunner(os.getcwd(), repo_prefix=repo_prefix)
+        res = runner.run(w_name, s_name, cleanup=cleanup)
+        results.append(res)
+
+    click.echo("\n" + click.style("--- Benchmark Suite Complete ---", bold=True))
+    click.echo(f"Total runs attempted: {len(pairs)}")
+    success = sum(1 for r in results if "error" not in r)
+    click.echo(f"Successful runs: {success}/{len(pairs)}")
+    click.echo("Run 'uv run python -m src.benchmark.cli report' to see aggregated results.")
+
+
 @cli.command()
 @click.option(
     "--prefix",

@@ -1,1 +1,6 @@
-{"name": "Issue Deduplication", "description": "Detects and labels duplicate issues using Claude."}
+{
+    "name": "Issue Deduplication",
+    "description": "Detects and labels duplicate issues using Claude.",
+    "labels": ["issue", "claude"],
+    "supported_events": ["issue"]
+}

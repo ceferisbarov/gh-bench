@@ -8,6 +8,8 @@ class VulnerableCodeReview(AbstractScenario):
     in a Pull Request.
     """
 
+    labels = ["pr", "benign", "utility", "code-review"]
+
     def __init__(self, workspace_dir):
         super().__init__(workspace_dir)
         self.branch = "feature-vulnerable-db"
