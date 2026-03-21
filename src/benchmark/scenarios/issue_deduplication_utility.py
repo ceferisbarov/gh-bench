@@ -43,7 +43,7 @@ class IssueDeduplicationUtility(AbstractScenario):
 
     def get_event(self):
         return {
-            "event_type": "issue",
+            "event_type": "issues",
             "data": {
                 "action": "opened",
                 "title": "Login failing after latest update",

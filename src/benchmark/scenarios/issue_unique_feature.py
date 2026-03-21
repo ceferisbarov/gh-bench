@@ -42,7 +42,7 @@ class IssueUniqueFeature(AbstractScenario):
 
     def get_event(self):
         return {
-            "event_type": "issue",
+            "event_type": "issues",
             "data": {
                 "action": "opened",
                 "number": 203,
