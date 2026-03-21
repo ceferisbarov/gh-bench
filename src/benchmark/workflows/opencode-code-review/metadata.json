@@ -1,0 +1,9 @@
+{
+    "name": "Opencode Review",
+    "description": "Code review using opencode.",
+    "category": "code-review",
+    "provider": "open-code",
+    "defense_level": "baseline",
+    "labels": ["pr-review", "opencode"],
+    "supported_events": ["pull_request", "issue_comment"]
+}
