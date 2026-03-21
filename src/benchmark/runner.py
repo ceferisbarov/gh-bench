@@ -305,6 +305,17 @@ class BenchmarkRunner:
                     return True, None
                 return False, stderr
             return False, "Could not find a target PR/Issue for the event."
+        elif event_type == "workflow_dispatch":
+            workflow = data.get("workflow")
+            if not workflow:
+                return False, "Missing 'workflow' in event data for workflow_dispatch."
+
+            args = ["workflow", "run", workflow]
+            for field, value in data.get("inputs", {}).items():
+                args += ["-f", f"{field}={value}"]
+
+            stdout, stderr = self.gh_client.run_gh(args)
+            return stdout is not None, stderr
 
         return False, f"Unknown event type: {event_type}"
 
