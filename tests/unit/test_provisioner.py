@@ -34,12 +34,61 @@ def test_provision_basic(mock_gh_client, tmp_path):
     provisioner = RepoProvisioner(mock_gh_client)
     provisioner.provision(workflow_dir=str(workflow_dir))
 
-    # Check if workflow was synced.
+    # Check if workflow was synced (backward compatibility)
     mock_gh_client.put_file.assert_called_once()
     args, kwargs = mock_gh_client.put_file.call_args
     assert args[0] == ".github/workflows/workflow.yml"
     assert args[1] == "workflow content"
     assert args[3] == "main"
+
+
+def test_provision_standard_structure(mock_gh_client, tmp_path):
+    # Create a directory for the workflow with standard structure
+    workflow_dir = tmp_path / "standard-workflow"
+    workflow_dir.mkdir()
+
+    contents_dir = workflow_dir / "contents"
+    contents_dir.mkdir()
+
+    # Add a workflow file
+    workflows_dir = contents_dir / ".github" / "workflows"
+    workflows_dir.mkdir(parents=True)
+    main_yml = workflows_dir / "main.yml"
+    main_yml.write_text("main workflow content")
+
+    # Add a script
+    scripts_dir = contents_dir / "scripts"
+    scripts_dir.mkdir()
+    test_sh = scripts_dir / "test.sh"
+    test_sh.write_text("echo hello")
+
+    # Add a root file
+    readme = contents_dir / "README.md"
+    readme.write_text("repo readme")
+
+    provisioner = RepoProvisioner(mock_gh_client)
+    provisioner.provision(workflow_dir=str(workflow_dir))
+
+    # Check if all files were synced to the correct relative paths
+    # README.md is synced during provision, and potentially also as initial commit if repo was empty/new
+    # but here RepoProvisioner._ensure_repo_exists is mocked to return an existing repo.
+
+    # We expect 3 calls to put_file for the contents
+    assert mock_gh_client.put_file.call_count == 3
+
+    call_args = [call[0] for call in mock_gh_client.put_file.call_args_list]
+
+    # Normalize paths for comparison (some OS might use different separators, though tmp_path usually uses /)
+    synced_paths = {arg[0].replace("\\", "/") for arg in call_args}
+
+    assert ".github/workflows/main.yml" in synced_paths
+    assert "scripts/test.sh" in synced_paths
+    assert "README.md" in synced_paths
+
+    # Verify content of one file
+    for arg in call_args:
+        if arg[0].replace("\\", "/") == ".github/workflows/main.yml":
+            assert arg[1] == "main workflow content"
 
 
 def test_provision_with_files(mock_gh_client, tmp_path):

@@ -1,0 +1,9 @@
+{
+    "name": "Gemini Full System",
+    "description": "Comprehensive Gemini-powered automation system with dispatching for review, triage, and interactive tasks.",
+    "category": "agentic-assistance",
+    "provider": "google-gemini",
+    "defense_level": "baseline",
+    "labels": ["full-system", "gemini", "baseline", "dispatch", "interactive"],
+    "supported_events": ["pull_request", "issues", "issue_comment", "pull_request_review", "pull_request_review_comment"]
+}

@@ -167,12 +167,21 @@ class BenchmarkRunner:
         secret_pattern = re.compile(r"\$\{\{\s*secrets\.(\w+)\s*\}\}")
         var_pattern = re.compile(r"\$\{\{\s*vars\.(\w+)\s*\}\}")
 
-        if os.path.isdir(workflow_dir):
+        # Standardized structure: Look inside contents/.github/workflows/
+        workflows_path = os.path.join(workflow_dir, "contents", ".github", "workflows")
+
+        files = []
+        if os.path.isdir(workflows_path):
+            files = [
+                os.path.join(workflows_path, f)
+                for f in os.listdir(workflows_path)
+                if f.endswith(".yml") or f.endswith(".yaml")
+            ]
+        elif os.path.isdir(workflow_dir):
+            # Fallback for old structure during transition
             files = [
                 os.path.join(workflow_dir, f) for f in os.listdir(workflow_dir) if f.endswith(".yml") or f.endswith(".yaml")
             ]
-        else:
-            files = [workflow_dir]
 
         for file_path in files:
             if not os.path.exists(file_path):
@@ -217,7 +226,7 @@ class BenchmarkRunner:
         event_type = scenario_event.get("event_type")
         data = scenario_event.get("data", {})
 
-        if event_type == "issue":
+        if event_type == "issues":
             stdout, stderr = self.gh_client.run_gh(
                 [
                     "issue",
@@ -253,10 +262,9 @@ class BenchmarkRunner:
                 scenario.runtime_state["pr_number"] = int(pr_number)
                 return True, None
             return False, stderr
-        elif event_type == "issue_comment":
-            # For comments, we need an existing issue or PR.
-            # Scenarios using this should have created it in setup_state.
-            # We look for the most recent PR/Issue if number isn't provided.
+        elif event_type in ["issue_comment", "pull_request_review", "pull_request_review_comment"]:
+            # For comments and reviews, we need an existing issue or PR.
+            # Scenarios using this should have created it in setup_state or it was the most recent.
             target_number = data.get("number")
             if not target_number:
                 # Try to find the PR created in setup_state
@@ -268,19 +276,35 @@ class BenchmarkRunner:
                     target_number = prs[0]["number"]
 
             if target_number:
-                stdout, stderr = self.gh_client.run_gh(
-                    [
-                        "pr",
-                        "comment",
-                        str(target_number),
-                        "--body",
-                        data.get("body", "/review"),
-                    ]
-                )
+                if event_type == "pull_request_review":
+                    # Create a review
+                    stdout, stderr = self.gh_client.run_gh(
+                        [
+                            "pr",
+                            "review",
+                            str(target_number),
+                            "--comment",
+                            "--body",
+                            data.get("body", "Looks good to me."),
+                        ]
+                    )
+                else:
+                    # issue_comment or pull_request_review_comment
+                    # Note: 'gh pr comment' handles both PRs and Issues
+                    stdout, stderr = self.gh_client.run_gh(
+                        [
+                            "pr",
+                            "comment",
+                            str(target_number),
+                            "--body",
+                            data.get("body", "/review"),
+                        ]
+                    )
+
                 if stdout and "https://github.com/" in stdout:
                     return True, None
                 return False, stderr
-            return False, "Could not find a target PR/Issue for the comment."
+            return False, "Could not find a target PR/Issue for the event."
 
         return False, f"Unknown event type: {event_type}"
 

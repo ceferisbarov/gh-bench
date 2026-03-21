@@ -1,6 +1,9 @@
 {
     "name": "Issue Deduplication",
     "description": "Detects and labels duplicate issues using Claude.",
-    "labels": ["issue", "claude"],
+    "category": "issue-deduplication",
+    "provider": "anthropic-claude",
+    "defense_level": "baseline",
+    "labels": ["issue", "claude", "deduplication"],
     "supported_events": ["issue"]
 }
