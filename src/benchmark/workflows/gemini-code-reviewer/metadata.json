@@ -1,9 +1,0 @@
-{
-    "name": "Gemini PR Reviewer",
-    "description": "Automatically reviews pull requests using Gemini CLI.",
-    "category": "code-review",
-    "provider": "google-gemini",
-    "defense_level": "baseline",
-    "labels": ["pr-review", "gemini", "baseline"],
-    "supported_events": ["pull_request", "issue_comment"]
-}
