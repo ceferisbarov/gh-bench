@@ -414,6 +414,7 @@ class BenchmarkRunner:
             AIProvider.ANTHROPIC_CLAUDE: ["ANTHROPIC_API_KEY"],
             AIProvider.OPENAI_CODEX: ["OPENAI_API_KEY"],
             AIProvider.AMAZON_Q: ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
+            AIProvider.GITHUB_COPILOT: ["COPILOT_GITHUB_TOKEN"],
             # ... others can be added as they are implemented
         }
 

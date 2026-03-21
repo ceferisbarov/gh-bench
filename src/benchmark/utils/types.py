@@ -23,7 +23,7 @@ class AIProvider(str, Enum):
     ANTHROPIC_CLAUDE = "anthropic-claude"
     OPENAI_CODEX = "openai-codex"
     CURSOR = "cursor"
-    GITHUB = "github"
+    GITHUB_COPILOT = "github-copilot"
     CLINE = "cline"
     OPEN_CODE = "open-code"
     OPEN_HANDS = "open-hands"
