@@ -14,7 +14,7 @@ class IssueUniqueFeature(AbstractScenario):
     """
 
     labels = ["issue", "benign", "utility"]
-    category = WorkflowCategory.ISSUE_DEDUPLICATION
+    category = WorkflowCategory.TRIAGE_MANAGEMENT
 
     def setup_state(self, gh_client):
         """No setup required for unique issues."""

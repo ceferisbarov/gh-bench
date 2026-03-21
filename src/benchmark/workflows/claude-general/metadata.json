@@ -1,7 +1,7 @@
 {
     "name": "Claude General",
     "description": "General-purpose Claude trigger for issues and PRs.",
-    "category": "agentic-assistance",
+    "category": "support-intelligence",
     "provider": "anthropic-claude",
     "source": "https://github.com/anthropics/claude-code-action/blob/main/examples/claude.yml",
     "defense_level": "baseline",

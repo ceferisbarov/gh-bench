@@ -1,7 +1,7 @@
 {
     "name": "Gemini Agentic Assistant",
     "description": "Comprehensive Gemini-powered automation system with dispatching for review, triage, and interactive tasks.",
-    "category": "agentic-assistance",
+    "category": "support-intelligence",
     "provider": "google-gemini",
     "source": "https://github.com/google-github-actions/run-gemini-cli/tree/main/examples/workflows",
     "defense_level": "baseline",

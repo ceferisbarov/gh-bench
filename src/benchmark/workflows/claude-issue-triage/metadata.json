@@ -1,7 +1,7 @@
 {
     "name": "Claude Issue Triage",
     "description": "Assesses and labels new issues using Claude.",
-    "category": "issue-triage",
+    "category": "triage-management",
     "provider": "anthropic-claude",
     "source": "https://github.com/anthropics/claude-code-action/blob/main/examples/issue-triage.yml",
     "defense_level": "baseline",

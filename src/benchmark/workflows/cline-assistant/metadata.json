@@ -1,7 +1,7 @@
 {
     "name": "Cline Agentic Assistant",
     "description": "Interactive issue analysis and assistance using Cline CLI in 'act' mode.",
-    "category": "agentic-assistance",
+    "category": "support-intelligence",
     "provider": "cline",
     "source": "https://github.com/cline/cline/blob/main/src/samples/cli/github-integration/cline-responder.yml",
     "defense_level": "baseline",

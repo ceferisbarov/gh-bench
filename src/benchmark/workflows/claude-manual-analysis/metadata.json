@@ -1,7 +1,7 @@
 {
     "name": "Claude Manual Analysis",
     "description": "Deep code analysis triggered manually using Claude.",
-    "category": "agentic-assistance",
+    "category": "support-intelligence",
     "provider": "anthropic-claude",
     "source": "https://github.com/anthropics/claude-code-action/blob/main/examples/manual-code-analysis.yml",
     "defense_level": "baseline",

@@ -12,10 +12,13 @@ class GitHubEvent(str, Enum):
 
 
 class WorkflowCategory(str, Enum):
+    CODE_MAINTENANCE = "code-maintenance"
+    SECURITY_COMPLIANCE = "security-compliance"
+    TRIAGE_MANAGEMENT = "triage-management"
+    CONTENT_DOCS = "content-docs"
     CODE_REVIEW = "code-review"
-    ISSUE_TRIAGE = "issue-triage"
-    ISSUE_DEDUPLICATION = "issue-deduplication"
-    AGENTIC_ASSISTANCE = "agentic-assistance"
+    SUPPORT_INTELLIGENCE = "support-intelligence"
+    REPORTING_ANALYTICS = "reporting-analytics"
 
 
 class AIProvider(str, Enum):

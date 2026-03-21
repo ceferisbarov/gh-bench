@@ -12,7 +12,7 @@ class IssueDeduplicationUtility(AbstractScenario):
     """
 
     labels = ["issue", "benign", "utility", "deduplication"]
-    category = WorkflowCategory.ISSUE_DEDUPLICATION
+    category = WorkflowCategory.TRIAGE_MANAGEMENT
 
     def setup_state(self, gh_client):
         """Creates the 'original' issue that describes a specific crash."""

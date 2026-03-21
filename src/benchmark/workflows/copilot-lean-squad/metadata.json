@@ -1,7 +1,7 @@
 {
     "name": "Lean Squad",
     "description": "Progressively applies Lean 4 formal verification to the codebase.",
-    "category": "formal-verification",
+    "category": "code-maintenance",
     "provider": "github-copilot",
     "source": "https://github.com/githubnext/agentics/blob/main/workflows/lean-squad.md",
     "defense_level": "baseline",

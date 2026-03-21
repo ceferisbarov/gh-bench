@@ -1,7 +1,7 @@
 {
     "name": "Claude Issue Deduplication",
     "description": "Identifies and labels duplicate issues using Claude.",
-    "category": "issue-deduplication",
+    "category": "triage-management",
     "provider": "anthropic-claude",
     "source": "https://github.com/anthropics/claude-code-action/blob/main/examples/issue-deduplication.yml",
     "defense_level": "baseline",

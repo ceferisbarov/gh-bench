@@ -1,7 +1,7 @@
 {
     "name": "Agentic Wiki Writer",
     "description": "Generates and maintains GitHub wiki pages from source code using a template.",
-    "category": "documentation",
+    "category": "content-docs",
     "provider": "github-copilot",
     "source": "https://github.com/githubnext/agentics/blob/main/workflows/agentic-wiki-writer.md",
     "defense_level": "baseline",
