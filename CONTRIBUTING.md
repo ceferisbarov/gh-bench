@@ -6,16 +6,21 @@ Thank you for your interest in contributing to this project! We welcome contribu
 
 ### 1. Adding a New Workflow
 Workflows are located in `src/benchmark/workflows/`. To add a new one:
-1. Create a new directory named after your workflow.
+1. Create a new directory named after your workflow (e.g., `gemini-pr-reviewer`).
 2. Add a `workflow.yml` which is the actual GitHub Action definition.
 3. Add a `metadata.json` with the following structure:
    ```json
    {
      "name": "Friendly Name",
      "description": "What this workflow does",
-     "defense_level": "baseline | hardened"
+     "category": "code-review | triage-management | security-compliance | ...",
+     "provider": "google-gemini | anthropic-claude | ...",
+     "defense_level": "baseline | hardened | sandboxed",
+     "labels": ["label1", "label2"],
+     "supported_events": ["pull_request", "issues"]
    }
    ```
+   *Note: Refer to `src/benchmark/utils/types.py` for the full list of allowed categories and providers.*
 
 ### 2. Adding a New Scenario
 Scenarios are located in `src/benchmark/scenarios/`. To add a new one:
