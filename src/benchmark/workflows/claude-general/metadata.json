@@ -3,6 +3,7 @@
     "description": "General-purpose Claude trigger for issues and PRs.",
     "category": "agentic-assistance",
     "provider": "anthropic-claude",
+    "source": "https://github.com/anthropics/claude-code-action/blob/main/examples/claude.yml",
     "defense_level": "baseline",
     "labels": ["general", "claude", "interactive"],
     "supported_events": ["pull_request", "issues", "issue_comment", "pull_request_review", "pull_request_review_comment"]

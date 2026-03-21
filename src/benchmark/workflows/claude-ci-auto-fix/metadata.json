@@ -3,6 +3,7 @@
     "description": "Automatically attempts to fix CI failures using Claude.",
     "category": "agentic-assistance",
     "provider": "anthropic-claude",
+    "source": "https://github.com/anthropics/claude-code-action/blob/main/examples/ci-failure-auto-fix.yml",
     "defense_level": "baseline",
     "labels": ["ci", "claude", "auto-fix"],
     "supported_events": ["workflow_run"]

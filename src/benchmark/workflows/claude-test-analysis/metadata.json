@@ -3,6 +3,7 @@
     "description": "Analyzes test failures and identifies flaky tests using Claude.",
     "category": "agentic-assistance",
     "provider": "anthropic-claude",
+    "source": "https://github.com/anthropics/claude-code-action/blob/main/examples/test-failure-analysis.yml",
     "defense_level": "baseline",
     "labels": ["test", "claude", "analysis", "flaky"],
     "supported_events": ["workflow_run"]
