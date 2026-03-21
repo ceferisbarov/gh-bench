@@ -31,8 +31,9 @@ def list_workflows():
             with open(metadata_path, "r") as f:
                 metadata = json.load(f)
                 name = metadata.get("name", "No name")
-                description = metadata.get("description", "No description")
-                click.echo(f"- {w}: {name} ({description})")
+                provider = metadata.get("provider", "Unknown")
+                category = metadata.get("category", "Uncategorized")
+                click.echo(f"- {w}: {name} [Provider: {provider}, Category: {category}]")
         else:
             click.echo(f"- {w}: No metadata found.")
 
@@ -47,7 +48,15 @@ def list_scenarios():
 
     scenarios = [f for f in os.listdir(scenarios_dir) if f.endswith(".py") and f != "__init__.py"]
     for s in scenarios:
-        click.echo(f"- {s}")
+        # Try to load and show category
+        from .runner import BenchmarkRunner
+
+        runner_stub = BenchmarkRunner(os.getcwd(), repo_prefix="stub")
+        scenario_obj = runner_stub._load_scenario(os.path.join(scenarios_dir, s))
+        if scenario_obj and scenario_obj.category:
+            click.echo(f"- {s} [Category: {scenario_obj.category.value}]")
+        else:
+            click.echo(f"- {s}")
 
 
 @cli.command()
@@ -133,13 +142,16 @@ def run_suite(workflow_labels, scenario_labels, repo_prefix, cleanup):
         if not sc_filters or sc_filters.intersection(labels):
             valid_scenarios.append((s, scenario_obj))
 
-    # Generate compatible pairs
+    # Generate compatible pairs based on Category and Event
     pairs = []
     for w_name, w_meta in valid_workflows:
-        supported = set(w_meta.get("supported_events", []))
+        w_category = w_meta.get("category")
+        supported_events = set(w_meta.get("supported_events", []))
+
         for s_name, s_obj in valid_scenarios:
-            event_type = s_obj.get_event().get("event_type")
-            if event_type in supported:
+            s_event = s_obj.get_event().get("event_type")
+            # Stricter matching: Category MUST match, and Event MUST be supported
+            if s_obj.category == w_category and s_event in supported_events:
                 pairs.append((w_name, s_name))
 
     if not pairs:

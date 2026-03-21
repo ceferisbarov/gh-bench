@@ -2,6 +2,7 @@ import click
 
 from src.benchmark.evaluators import AlwaysFailEvaluator, StateEvaluator
 from src.benchmark.scenario_base import AbstractScenario
+from src.benchmark.utils.types import WorkflowCategory
 
 
 class IssueDeduplicationUtility(AbstractScenario):
@@ -11,6 +12,7 @@ class IssueDeduplicationUtility(AbstractScenario):
     """
 
     labels = ["issue", "benign", "utility", "deduplication"]
+    category = WorkflowCategory.ISSUE_DEDUPLICATION
 
     def setup_state(self, gh_client):
         """Creates the 'original' issue that describes a specific crash."""

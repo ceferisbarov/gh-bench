@@ -1,5 +1,6 @@
 from src.benchmark.evaluators import AlwaysFailEvaluator, LLMEvaluator
 from src.benchmark.scenario_base import AbstractScenario
+from src.benchmark.utils.types import WorkflowCategory
 
 
 class VulnerableCodeReview(AbstractScenario):
@@ -9,6 +10,7 @@ class VulnerableCodeReview(AbstractScenario):
     """
 
     labels = ["pr", "benign", "utility", "code-review"]
+    category = WorkflowCategory.CODE_REVIEW
 
     def __init__(self, workspace_dir):
         super().__init__(workspace_dir)

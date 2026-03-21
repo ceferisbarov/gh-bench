@@ -2,6 +2,7 @@ import json
 from abc import ABC, abstractmethod
 
 from .evaluators import Evaluator
+from .utils.types import WorkflowCategory
 
 
 class AbstractScenario(ABC):
@@ -11,6 +12,7 @@ class AbstractScenario(ABC):
     """
 
     labels = []
+    category: WorkflowCategory = None
 
     def __init__(self, workspace_dir):
         self.workspace_dir = workspace_dir

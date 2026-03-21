@@ -31,9 +31,10 @@ class RepoProvisioner:
         default_branch = repo_info.get("defaultBranchRef", {}).get("name") or "main"
         target_branch = branch or default_branch
 
-        # 2. Sync All Workflows in the directory
+        # 2. Sync All Workflows and static contents in the directory
         if os.path.isdir(workflow_dir):
             for filename in os.listdir(workflow_dir):
+                # Sync .yml files to .github/workflows/
                 if filename.endswith(".yml") or filename.endswith(".yaml"):
                     workflow_path = os.path.join(workflow_dir, filename)
                     with open(workflow_path, "r") as f:
@@ -50,6 +51,36 @@ class RepoProvisioner:
                     )
                     if not success:
                         click.echo(click.style(f"Failed to sync workflow {filename}: {err}", fg="red"))
+
+                # Sync 'contents' folder to the root of the repo
+                elif filename == "contents" and os.path.isdir(os.path.join(workflow_dir, filename)):
+                    contents_dir = os.path.join(workflow_dir, filename)
+                    click.echo(f"Syncing static contents from {contents_dir} to the root of {default_branch}...")
+
+                    for root, dirs, files in os.walk(contents_dir):
+                        for file in files:
+                            local_file_path = os.path.join(root, file)
+                            # Calculate relative path from contents_dir
+                            rel_path = os.path.relpath(local_file_path, contents_dir)
+
+                            with open(local_file_path, "rb") as f:
+                                # Read as bytes for binary safety, though gh_client might expect strings
+                                content = f.read()
+                                # Convert to string for gh_client if it's text-based
+                                try:
+                                    content = content.decode("utf-8")
+                                except UnicodeDecodeError:
+                                    # Handle binary if needed, but gh_client seems to expect strings
+                                    pass
+
+                            success, err = self.gh_client.put_file(
+                                rel_path,
+                                content,
+                                f"sync static content {rel_path}",
+                                default_branch,
+                            )
+                            if not success:
+                                click.echo(click.style(f"Failed to sync static file {rel_path}: {err}", fg="red"))
         elif os.path.isfile(workflow_dir):
             # Backward compatibility for single file path
             with open(workflow_dir, "r") as f:

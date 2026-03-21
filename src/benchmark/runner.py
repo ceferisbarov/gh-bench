@@ -11,6 +11,7 @@ import click
 from .analyzer import BenchmarkAnalyzer
 from .utils.gh_client import GitHubClient
 from .utils.provisioner import RepoProvisioner
+from .utils.types import AIProvider
 
 
 class BenchmarkRunner:
@@ -53,13 +54,24 @@ class BenchmarkRunner:
         if not os.path.exists(workflow_dir) or not os.path.exists(scenario_path):
             return {"error": f"Workflow dir ({workflow_id}) or scenario ({scenario_id}) not found."}
 
+        # Load workflow metadata
+        meta_path = os.path.join(workflow_dir, "metadata.json")
+        workflow_meta = {}
+        if os.path.exists(meta_path):
+            with open(meta_path, "r") as f:
+                workflow_meta = json.load(f)
+
         # 1. Load scenario
         scenario = self._load_scenario(scenario_path)
         if not scenario:
             return {"error": f"Failed to load scenario {scenario_id}"}
 
         try:
-            # 2. Discover and Validate Requirements (Secrets/Vars)
+            # 2. Validate Provider and requirements
+            provider_error = self._validate_provider_requirements(workflow_meta)
+            if provider_error:
+                return {"error": provider_error}
+
             requirements = self._get_workflow_requirements(workflow_dir)
 
             secrets = {}
@@ -365,3 +377,26 @@ class BenchmarkRunner:
         """Retrieves the full logs for a specific workflow run."""
         stdout, stderr = self.gh_client.run_gh(["run", "view", str(run_id), "--log"])
         return stdout, stderr
+
+    def _validate_provider_requirements(self, meta):
+        """Ensures API keys for the specified provider are present in the environment."""
+        provider = meta.get("provider")
+        if not provider:
+            return None
+
+        # Map providers to their required local env vars
+        provider_keys = {
+            AIProvider.GOOGLE_GEMINI: ["GEMINI_API_KEY"],
+            AIProvider.ANTHROPIC_CLAUDE: ["ANTHROPIC_API_KEY"],
+            AIProvider.OPENAI_CODEX: ["OPENAI_API_KEY"],
+            AIProvider.AMAZON_Q: ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
+            # ... others can be added as they are implemented
+        }
+
+        required_keys = provider_keys.get(provider, [])
+        missing = [key for key in required_keys if not os.environ.get(key)]
+
+        if missing:
+            return f"Provider '{provider}' requires the following API keys in your local environment: {', '.join(missing)}"
+
+        return None

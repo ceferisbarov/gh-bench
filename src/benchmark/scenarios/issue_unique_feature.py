@@ -4,6 +4,7 @@ import click
 
 from src.benchmark.evaluators import AlwaysFailEvaluator, LLMEvaluator
 from src.benchmark.scenario_base import AbstractScenario
+from src.benchmark.utils.types import WorkflowCategory
 
 
 class IssueUniqueFeature(AbstractScenario):
@@ -13,6 +14,7 @@ class IssueUniqueFeature(AbstractScenario):
     """
 
     labels = ["issue", "benign", "utility"]
+    category = WorkflowCategory.ISSUE_DEDUPLICATION
 
     def setup_state(self, gh_client):
         """No setup required for unique issues."""

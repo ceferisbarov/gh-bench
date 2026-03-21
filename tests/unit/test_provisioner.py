@@ -25,30 +25,32 @@ def mock_gh_client():
 
 
 def test_provision_basic(mock_gh_client, tmp_path):
-    # Create a directory for the workflow so we know its name
+    # Create a directory for the workflow
     workflow_dir = tmp_path / "test-workflow-dir"
     workflow_dir.mkdir()
-    workflow_file = workflow_dir / "any_name.yml"
+    workflow_file = workflow_dir / "workflow.yml"
     workflow_file.write_text("workflow content")
 
     provisioner = RepoProvisioner(mock_gh_client)
-    provisioner.provision(workflow_path=str(workflow_file))
+    provisioner.provision(workflow_dir=str(workflow_dir))
 
     # Check if workflow was synced.
-    # Logic in provisioner: workflow_dir_name = os.path.basename(os.path.dirname(workflow_path))
-    # remote_workflow_path = f".github/workflows/{workflow_dir_name}.yml"
     mock_gh_client.put_file.assert_called_once()
     args, kwargs = mock_gh_client.put_file.call_args
-    assert args[0] == ".github/workflows/test-workflow-dir.yml"
+    assert args[0] == ".github/workflows/workflow.yml"
     assert args[1] == "workflow content"
     assert args[3] == "main"
 
 
-def test_provision_with_files(mock_gh_client):
+def test_provision_with_files(mock_gh_client, tmp_path):
+    # Create an empty workflow dir to satisfy the provisioner
+    workflow_dir = tmp_path / "empty-workflow"
+    workflow_dir.mkdir()
+
     provisioner = RepoProvisioner(mock_gh_client)
     required_files = {"file.txt": "content"}
 
-    provisioner.provision(workflow_path="nonexistent.yml", required_files=required_files)
+    provisioner.provision(workflow_dir=str(workflow_dir), required_files=required_files)
 
     # Check if file was synced
     mock_gh_client.put_file.assert_called_once()
@@ -58,27 +60,35 @@ def test_provision_with_files(mock_gh_client):
     assert args[3] == "main"
 
 
-def test_provision_new_branch(mock_gh_client):
+def test_provision_new_branch(mock_gh_client, tmp_path):
+    # Create an empty workflow dir
+    workflow_dir = tmp_path / "empty-workflow"
+    workflow_dir.mkdir()
+
     # Branch doesn't exist initially
     mock_gh_client.get_branch_info.return_value = {}
     mock_gh_client.create_branch.return_value = (True, "")
 
     provisioner = RepoProvisioner(mock_gh_client)
-    provisioner.provision(workflow_path="none", branch="feature")
+    provisioner.provision(workflow_dir=str(workflow_dir), branch="feature")
 
     # Verify branch creation
     mock_gh_client.create_branch.assert_called_once_with("feature", "main")
 
     # Verify file sync (if any) would go to feature branch
     required_files = {"test.txt": "data"}
-    provisioner.provision(workflow_path="none", required_files=required_files, branch="feature")
+    provisioner.provision(workflow_dir=str(workflow_dir), required_files=required_files, branch="feature")
 
     # Last call to put_file should be for feature branch
     args, kwargs = mock_gh_client.put_file.call_args
     assert args[3] == "feature"
 
 
-def test_provision_create_repo(mock_gh_client):
+def test_provision_create_repo(mock_gh_client, tmp_path):
+    # Create an empty workflow dir
+    workflow_dir = tmp_path / "empty-workflow"
+    workflow_dir.mkdir()
+
     # Repo doesn't exist
     mock_gh_client.get_repo_info.side_effect = [
         None,
@@ -87,7 +97,7 @@ def test_provision_create_repo(mock_gh_client):
     mock_gh_client.create_repo.return_value = (True, "")
 
     provisioner = RepoProvisioner(mock_gh_client)
-    provisioner.provision(workflow_path="none")
+    provisioner.provision(workflow_dir=str(workflow_dir))
 
     mock_gh_client.create_repo.assert_called_once()
     # Should have put README.md as initial commit
@@ -99,7 +109,11 @@ def test_provision_create_repo(mock_gh_client):
     )
 
 
-def test_provision_empty_repo(mock_gh_client):
+def test_provision_empty_repo(mock_gh_client, tmp_path):
+    # Create an empty workflow dir
+    workflow_dir = tmp_path / "empty-workflow"
+    workflow_dir.mkdir()
+
     # Repo exists but is empty
     mock_gh_client.get_repo_info.side_effect = [
         {"isEmpty": True, "defaultBranchRef": {"name": "main"}},
@@ -107,7 +121,7 @@ def test_provision_empty_repo(mock_gh_client):
     ]
 
     provisioner = RepoProvisioner(mock_gh_client)
-    provisioner.provision(workflow_path="none")
+    provisioner.provision(workflow_dir=str(workflow_dir))
 
     # Should have put README.md
     mock_gh_client.put_file.assert_any_call(
@@ -118,7 +132,11 @@ def test_provision_empty_repo(mock_gh_client):
     )
 
 
-def test_provision_fork_repo(mock_gh_client):
+def test_provision_fork_repo(mock_gh_client, tmp_path):
+    # Create an empty workflow dir
+    workflow_dir = tmp_path / "empty-workflow"
+    workflow_dir.mkdir()
+
     # Repo doesn't exist initially
     mock_gh_client.get_repo_info.side_effect = [
         None,
@@ -126,7 +144,7 @@ def test_provision_fork_repo(mock_gh_client):
     ]
 
     provisioner = RepoProvisioner(mock_gh_client)
-    provisioner.provision(workflow_path="none", template_repo="source/template")
+    provisioner.provision(workflow_dir=str(workflow_dir), template_repo="source/template")
 
     mock_gh_client.fork_repo.assert_called_once_with("source/template")
     # Should NOT have put README.md as fork should already have content
