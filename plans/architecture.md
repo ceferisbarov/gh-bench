@@ -75,6 +75,11 @@ Contains local clones/forks of the AI GitHub Actions being benchmarked. This all
     - **Static Content**: Pushes any files required by a specific scenario.
     - **Teardown**: Deletes the entire repository after the benchmark run.
 
+### 2.5 Reporting Layer (`reports/`)
+- **Workflow Taxonomy**: All workflows and scenarios are classified into seven standard categories (e.g., Code Maintenance, Security & Compliance, Triage & Management) to enable cross-provider benchmarking.
+- **Performance Reports**: Periodic reports that analyze the utility vs. security trade-offs for different agent configurations.
+- **Run Artifacts**: Detailed logs and metadata from individual benchmark runs, stored for auditing and analysis.
+
 ## 3. Evaluation Lifecycle
 
 1.  **Selection**: User selects a Workflow and a Scenario.
@@ -88,7 +93,10 @@ Contains local clones/forks of the AI GitHub Actions being benchmarked. This all
     - The **Runner** polls for workflow completion.
     - The **Analyzer** requests the `Evaluator` objects from the Scenario.
     - The **Evaluators** execute (State checks via API or LLM grading via logs).
-6.  **Cleanup**:
+6.  **Reporting**:
+    - The results are logged to the `runs/` directory.
+    - Summary metrics are aggregated into the `reports/` directory according to the **Workflow Taxonomy**.
+7.  **Cleanup**:
     - The **Provisioner** deletes the entire GitHub repository.
 
 ## 4. Key Security Concepts

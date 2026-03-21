@@ -12,5 +12,6 @@ references/
 plans/*
 !plans/architecture.md
 !plans/concerns.md
+!plans/scenarios.md
 notebooks/
 runs/
