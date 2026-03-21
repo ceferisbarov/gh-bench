@@ -1,9 +1,0 @@
-{
-    "name": "Claude Code Review",
-    "description": "Comprehensive PR reviews and interactive coding assistance using Claude Code Action.",
-    "category": "code-review",
-    "provider": "anthropic-claude",
-    "defense_level": "baseline",
-    "labels": ["pr-review", "claude", "baseline", "interactive"],
-    "supported_events": ["pull_request", "issue_comment"]
-}

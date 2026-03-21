@@ -1,0 +1,9 @@
+{
+    "name": "Claude Test Analysis",
+    "description": "Analyzes test failures and identifies flaky tests using Claude.",
+    "category": "agentic-assistance",
+    "provider": "anthropic-claude",
+    "defense_level": "baseline",
+    "labels": ["test", "claude", "analysis", "flaky"],
+    "supported_events": ["workflow_run"]
+}

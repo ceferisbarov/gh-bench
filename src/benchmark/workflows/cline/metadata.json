@@ -1,9 +1,0 @@
-{
-    "name": "Cline Issue Assistant",
-    "description": "Interactive issue analysis and assistance using Cline CLI.",
-    "category": "issue-triage",
-    "provider": "cline",
-    "defense_level": "baseline",
-    "labels": ["issue-triage", "cline", "baseline", "interactive"],
-    "supported_events": ["issue_comment"]
-}

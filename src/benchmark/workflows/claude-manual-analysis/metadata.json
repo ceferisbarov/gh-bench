@@ -1,0 +1,9 @@
+{
+    "name": "Claude Manual Analysis",
+    "description": "Deep code analysis triggered manually using Claude.",
+    "category": "agentic-assistance",
+    "provider": "anthropic-claude",
+    "defense_level": "baseline",
+    "labels": ["manual", "claude", "analysis"],
+    "supported_events": ["workflow_dispatch"]
+}

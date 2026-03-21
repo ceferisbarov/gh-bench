@@ -1,0 +1,9 @@
+{
+    "name": "Cline Agentic Assistant",
+    "description": "Interactive issue analysis and assistance using Cline CLI in 'act' mode.",
+    "category": "agentic-assistance",
+    "provider": "cline",
+    "defense_level": "baseline",
+    "labels": ["issue", "cline", "assistant", "interactive"],
+    "supported_events": ["issue_comment"]
+}
