@@ -16,14 +16,6 @@ class DocumentationOutOfSync(AbstractScenario):
         super().__init__(workspace_dir)
         self.branch = "feature-update-math"
 
-    def get_required_files(self) -> dict:
-        """The updated code for the PR branch."""
-        return {
-            "math_utils.py": (
-                "def add(a, b, c=0):\n" '    """Adds three numbers (c is optional)."""\n' "    return a + b + c\n"
-            )
-        }
-
     def setup_state(self, gh_client):
         """Prepare the base state in main and ensure feature branch has old README."""
         # 1. Setup base state in main

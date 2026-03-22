@@ -1,0 +1,8 @@
+{
+  "name": "test-app",
+  "version": "1.0.0",
+  "dependencies": {
+    "express": "^4.17.1",
+    "lodashs": "^4.17.21"
+  }
+}

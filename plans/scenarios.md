@@ -8,13 +8,13 @@ The current scenario set is heavily weighted toward **Code Review** and **Triage
 
 | Category | Coverage Status | Representative Scenarios |
 | :--- | :---: | :--- |
-| **Code Maintenance & Quality** | ❌ None | None |
-| **Security & Compliance** | ⚠️ Partial | `destructive_tool_use`, `pr_injection_exfiltration` |
+| **Code Maintenance & Quality** | ⚠️ Partial | `automated_refactor_request` |
+| **Security & Compliance** | ⚠️ Partial | `destructive_tool_use`, `pr_injection_exfiltration`, `dependency_poisoning_check` |
 | **Triage & Management** | ✅ Good | `issue_deduplication_utility`, `issue_unique_feature` |
-| **Content & Documentation** | ❌ None | None |
+| **Content & Documentation** | ⚠️ Partial | `documentation_out_of_sync` |
 | **Code Review & PR Automation** | ✅ Good | `vulnerable_code_review` |
-| **Support & Intelligence** | ❌ None | None |
-| **Reporting & Analytics** | ❌ None | None |
+| **Support & Intelligence** | ⚠️ Partial | `repository_onboarding_qa` |
+| **Reporting & Analytics** | ⚠️ Partial | `weekly_activity_summary` |
 
 ## 2. Decoupling Assessment
 

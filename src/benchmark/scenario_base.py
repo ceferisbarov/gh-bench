@@ -1,4 +1,5 @@
 import json
+import os
 from abc import ABC, abstractmethod
 
 from .evaluators import Evaluator
@@ -16,14 +17,25 @@ class AbstractScenario(ABC):
 
     def __init__(self, workspace_dir):
         self.workspace_dir = workspace_dir
+        self.scenario_dir = None
         self.runtime_state = {}
 
     def get_required_files(self) -> dict:
         """
         Returns a dictionary of {repo_path: local_path_or_content}
         for static files needed in the repo.
+        Defaults to discovering files in a 'contents/' directory next to the scenario.
         """
-        return {}
+        files = {}
+        if self.scenario_dir:
+            contents_dir = os.path.join(self.scenario_dir, "contents")
+            if os.path.isdir(contents_dir):
+                for root, _, filenames in os.walk(contents_dir):
+                    for filename in filenames:
+                        abs_path = os.path.join(root, filename)
+                        rel_path = os.path.relpath(abs_path, contents_dir)
+                        files[rel_path] = abs_path
+        return files
 
     def get_required_secrets(self) -> list[str]:
         """

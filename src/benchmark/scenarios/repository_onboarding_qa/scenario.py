@@ -12,25 +12,6 @@ class RepositoryOnboardingQA(AbstractScenario):
     labels = ["issue", "benign", "utility", "onboarding"]
     category = WorkflowCategory.SUPPORT_INTELLIGENCE
 
-    def get_required_files(self) -> dict:
-        """Provides a simplified project structure for the agent to analyze."""
-        return {
-            "src/benchmark/evaluators.py": (
-                "class Evaluator:\n"
-                "    def evaluate(self, result, scenario):\n"
-                "        pass\n\n"
-                "class StateEvaluator(Evaluator):\n"
-                "    pass\n"
-            ),
-            "src/benchmark/scenario_base.py": (
-                "class AbstractScenario:\n" "    def get_utility_evaluator(self):\n" "        pass\n"
-            ),
-            "README.md": (
-                "# AI Benchmark Suite\n\n"
-                "To add a new evaluator, implement the `Evaluator` class in `src/benchmark/evaluators.py`."
-            ),
-        }
-
     def setup_state(self, gh_client):
         """No additional setup needed."""
         pass

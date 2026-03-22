@@ -31,50 +31,65 @@ class RepoProvisioner:
         default_branch = repo_info.get("defaultBranchRef", {}).get("name") or "main"
         target_branch = branch or default_branch
 
-        # 2. Sync All Static contents in the directory
+        # 2. Collect all files to be provisioned
+        all_files = {}  # repo_path -> content_or_local_path
+
+        # A. Collect from Workflow directory
         if os.path.isdir(workflow_dir):
             contents_dir = os.path.join(workflow_dir, "contents")
             if os.path.isdir(contents_dir):
-                click.echo(f"Syncing static contents from {contents_dir} to the root of {default_branch}...")
-
-                for root, dirs, files in os.walk(contents_dir):
-                    for file in files:
-                        local_file_path = os.path.join(root, file)
-                        # Calculate relative path from contents_dir
+                for root, _, filenames in os.walk(contents_dir):
+                    for filename in filenames:
+                        local_file_path = os.path.join(root, filename)
                         rel_path = os.path.relpath(local_file_path, contents_dir)
-
-                        with open(local_file_path, "rb") as f:
-                            # Read as bytes for binary safety
-                            content = f.read()
-                            # Convert to string for gh_client if it's text-based
-                            try:
-                                content = content.decode("utf-8")
-                            except UnicodeDecodeError:
-                                # Keep as bytes if it's binary; gh_client.put_file should handle it
-                                pass
-
-                        success, err = self.gh_client.put_file(
-                            rel_path,
-                            content,
-                            f"sync static content {rel_path}",
-                            default_branch,
-                        )
-                        if not success:
-                            click.echo(click.style(f"Failed to sync static file {rel_path}: {err}", fg="red"))
+                        all_files[rel_path] = local_file_path
             else:
-                # If no 'contents' folder, we check for root-level YAMLs for backward compatibility
-                # but we should move away from this.
+                # Legacy fallback
                 for filename in os.listdir(workflow_dir):
                     if filename.endswith(".yml") or filename.endswith(".yaml"):
                         workflow_path = os.path.join(workflow_dir, filename)
-                        with open(workflow_path, "r") as f:
-                            content = f.read()
+                        all_files[f".github/workflows/{filename}"] = workflow_path
 
-                        remote_workflow_path = f".github/workflows/{filename}"
-                        click.echo(f"Syncing workflow {filename} to {remote_workflow_path} on {default_branch}...")
-                        self.gh_client.put_file(remote_workflow_path, content, f"sync workflow {filename}", default_branch)
+        # B. Collect from Scenario requirements
+        if required_files:
+            for repo_path, content_or_path in required_files.items():
+                if repo_path in all_files:
+                    raise ValueError(
+                        f"Conflict detected: File '{repo_path}' is defined by both the workflow and the scenario."
+                    )
+                all_files[repo_path] = content_or_path
 
-        # 3. Ensure target branch exists if it's different from default
+        # 3. Sync files to GitHub
+        # We sync workflow-originated files to default branch and others to target branch?
+        # Actually, for consistency, let's sync everything to the target branch if it exists,
+        # but workflows MUST be on the default branch for some triggers to work.
+        # Decision: Sync EVERYTHING to both if target != default? Or just sync all to target?
+        # Most reliable: Sync all to default branch first, then branch off.
+
+        for repo_path, content_or_path in all_files.items():
+            content = content_or_path
+            is_binary = False
+            if isinstance(content_or_path, str) and os.path.exists(content_or_path):
+                with open(content_or_path, "rb") as f:
+                    content = f.read()
+                    try:
+                        content = content.decode("utf-8")
+                    except UnicodeDecodeError:
+                        is_binary = True
+
+            click.echo(f"Syncing {repo_path} to {default_branch}...")
+            # Note: put_file expects string for content, but we might need to handle bytes
+            # For now, we assume text or we'd need to update gh_client.put_file
+            success, err = self.gh_client.put_file(
+                repo_path,
+                content if not is_binary else content.decode("latin-1"),  # Temporary hack for binary
+                f"provision {repo_path}",
+                default_branch,
+            )
+            if not success:
+                click.echo(click.style(f"Failed to sync file {repo_path}: {err}", fg="red"))
+
+        # 4. Ensure target branch exists and is updated
         if target_branch != default_branch:
             branch_info = self.gh_client.get_branch_info(target_branch)
             if not branch_info:
@@ -83,19 +98,6 @@ class RepoProvisioner:
                 if not success:
                     click.echo(click.style(f"Failed to create branch {target_branch}: {err}", fg="red"))
                     return
-
-        # 4. Sync Scenario Files (to target branch)
-        if required_files:
-            for repo_path, local_path_or_content in required_files.items():
-                content = local_path_or_content
-                if isinstance(local_path_or_content, str) and os.path.exists(local_path_or_content):
-                    with open(local_path_or_content, "r") as f:
-                        content = f.read()
-
-                click.echo(f"Syncing scenario file {repo_path} to branch {target_branch}...")
-                success, err = self.gh_client.put_file(repo_path, content, f"sync {repo_path}", target_branch)
-                if not success:
-                    click.echo(click.style(f"Failed to sync file {repo_path}: {err}", fg="red"))
 
         # 5. Set Repository Secrets
         if secrets:

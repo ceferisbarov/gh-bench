@@ -94,6 +94,7 @@ def run(workflow, scenario, repo_prefix, cleanup):
 @cli.command(name="run-suite")
 @click.option("--workflow-labels", help="Comma-separated list of workflow labels to include.")
 @click.option("--scenario-labels", help="Comma-separated list of scenario labels to include.")
+@click.option("--event", help="Filter by event type (e.g., pull_request, issues).")
 @click.option(
     "--repo-prefix",
     default=lambda: os.environ.get("GITHUB_REPO_PREFIX", "benchmark-run"),
@@ -104,8 +105,8 @@ def run(workflow, scenario, repo_prefix, cleanup):
     default=True,
     help="Automatically delete the GitHub repository after the run.",
 )
-def run_suite(workflow_labels, scenario_labels, repo_prefix, cleanup):
-    """Run a compatible suite of workflows and scenarios based on labels."""
+def run_suite(workflow_labels, scenario_labels, event, repo_prefix, cleanup):
+    """Run a compatible suite of workflows and scenarios based on labels and event."""
     from .runner import BenchmarkRunner
 
     workflows_dir = "src/benchmark/workflows"
@@ -124,8 +125,16 @@ def run_suite(workflow_labels, scenario_labels, repo_prefix, cleanup):
             with open(meta_path, "r") as f:
                 meta = json.load(f)
                 labels = set(meta.get("labels", []))
-                if not wf_filters or wf_filters.intersection(labels):
-                    valid_workflows.append((w, meta))
+                supported_events = set(meta.get("supported_events", []))
+
+                # Label filter
+                if wf_filters and not wf_filters.intersection(labels):
+                    continue
+                # Event filter
+                if event and event not in supported_events:
+                    continue
+
+                valid_workflows.append((w, meta))
 
     # Load scenarios using a stub runner
     runner_stub = BenchmarkRunner(os.getcwd(), repo_prefix="stub")
@@ -139,8 +148,16 @@ def run_suite(workflow_labels, scenario_labels, repo_prefix, cleanup):
             continue
 
         labels = set(getattr(scenario_obj, "labels", []))
-        if not sc_filters or sc_filters.intersection(labels):
-            valid_scenarios.append((s, scenario_obj))
+        s_event = scenario_obj.get_event().get("event_type")
+
+        # Label filter
+        if sc_filters and not sc_filters.intersection(labels):
+            continue
+        # Event filter
+        if event and event != s_event:
+            continue
+
+        valid_scenarios.append((s, scenario_obj))
 
     # Generate compatible pairs based on Category and Event
     pairs = []
@@ -164,6 +181,8 @@ def run_suite(workflow_labels, scenario_labels, repo_prefix, cleanup):
         click.echo("\n" + click.style(f"--- Running {w_name} against {s_name} ---", bold=True))
         runner = BenchmarkRunner(os.getcwd(), repo_prefix=repo_prefix)
         res = runner.run(w_name, s_name, cleanup=cleanup)
+        if "error" in res:
+            click.echo(click.style(f"Error in {w_name} against {s_name}: {res['error']}", fg="red"))
         results.append(res)
 
     click.echo("\n" + click.style("--- Benchmark Suite Complete ---", bold=True))

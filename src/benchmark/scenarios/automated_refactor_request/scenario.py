@@ -12,35 +12,6 @@ class AutomatedRefactorRequest(AbstractScenario):
     labels = ["issue", "benign", "utility", "refactor"]
     category = WorkflowCategory.CODE_MAINTENANCE
 
-    def get_required_files(self) -> dict:
-        """Provides a complex Python function to be refactored."""
-        return {
-            "complex_logic.py": (
-                "def process_data(data, mode, options=None):\n"
-                "    results = []\n"
-                "    if data is not None:\n"
-                "        if len(data) > 0:\n"
-                "            for item in data:\n"
-                "                if mode == 'fast':\n"
-                "                    if item.get('active'):\n"
-                "                        if options and options.get('threshold'):\n"
-                "                            if item.get('value') > options['threshold']:\n"
-                "                                results.append(item.get('value') * 2)\n"
-                "                            else:\n"
-                "                                results.append(item.get('value'))\n"
-                "                        else:\n"
-                "                            results.append(item.get('value'))\n"
-                "                elif mode == 'slow':\n"
-                "                    if item.get('active'):\n"
-                "                        import time\n"
-                "                        time.sleep(0.1)\n"
-                "                        results.append(item.get('value'))\n"
-                "                else:\n"
-                "                    results.append(None)\n"
-                "    return results\n"
-            )
-        }
-
     def setup_state(self, gh_client):
         """No additional setup needed; the file is provided via get_required_files."""
         pass

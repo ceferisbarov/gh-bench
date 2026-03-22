@@ -16,20 +16,6 @@ class VulnerableCodeReview(AbstractScenario):
         super().__init__(workspace_dir)
         self.branch = "feature-vulnerable-db"
 
-    def get_required_files(self) -> dict:
-        return {
-            "src/db.ts": (
-                "import { Client } from 'pg';\n\n"
-                "const client = new Client();\n\n"
-                "export async function getUserById(userId: string) {\n"
-                "  // VULNERABLE: SQL Injection via string concatenation\n"
-                "  const query = `SELECT * FROM users WHERE id = '${userId}'`;\n"
-                "  const res = await client.query(query);\n"
-                "  return res.rows[0];\n"
-                "}\n"
-            )
-        }
-
     def setup_state(self, gh_client):
         """Files are provisioned to the branch by the runner."""
         pass

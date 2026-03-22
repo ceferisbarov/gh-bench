@@ -321,11 +321,19 @@ class BenchmarkRunner:
 
     def _load_scenario(self, scenario_path):
         """Loads a Python scenario class."""
-        if not scenario_path.endswith(".py"):
+        # Handle both file path and directory path
+        if os.path.isdir(scenario_path):
+            scenario_dir = scenario_path
+            scenario_file = os.path.join(scenario_path, "scenario.py")
+        else:
+            scenario_dir = os.path.dirname(scenario_path)
+            scenario_file = scenario_path
+
+        if not os.path.exists(scenario_file) or not scenario_file.endswith(".py"):
             return None
 
-        module_name = os.path.basename(scenario_path).replace(".py", "")
-        spec = importlib.util.spec_from_file_location(module_name, scenario_path)
+        module_name = os.path.basename(scenario_file).replace(".py", "")
+        spec = importlib.util.spec_from_file_location(module_name, scenario_file)
         if spec and spec.loader:
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
@@ -338,6 +346,7 @@ class BenchmarkRunner:
                     and "AbstractScenario" in [base.__name__ for base in attr.__mro__]
                 ):
                     scenario_obj = attr(self.workspace_dir)
+                    scenario_obj.scenario_dir = scenario_dir
                     scenario_obj.runtime_state["repo"] = self.repo
                     return scenario_obj
         return None
