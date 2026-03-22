@@ -22,8 +22,10 @@
 - [ ] we should comply with githubs terms:
   - secondary rate limits (10–20 repositories in rapid succession or more than 500 per hour.)
   - move to self-hosted runners for large-scale runs
+- [x] MUST BE model agnostic (Implemented via Adversarial Substitution Framework)
+- [ ] Implement Refusal Detection in \`BenchmarkAnalyzer\` to identify when a model safety filter masks a vulnerability.
+- [ ] Complete \`mistral\`/\`unaligned\` instrumentation for all supported actions in \`actions/\`.
 - [x] fix metadata format & update metadata for existing workflows
-- [ ] MUST BE model agnostic
 - [x] create labels: coding vs. triage, pr vs. issue, analysis, create prs (Implemented via Workflow Taxonomy)
 - [ ] for some labels (e.g., not issue triage): collect enough scenarios to quantify utility vs. security trade-off
 - [ ] collect at least ~5 meaningfully distinct coding workflows

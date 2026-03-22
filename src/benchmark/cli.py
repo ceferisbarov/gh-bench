@@ -46,17 +46,26 @@ def list_scenarios():
         click.echo("Scenarios directory not found.")
         return
 
-    scenarios = [f for f in os.listdir(scenarios_dir) if f.endswith(".py") and f != "__init__.py"]
-    for s in scenarios:
-        # Try to load and show category
-        from .runner import BenchmarkRunner
+    from .runner import BenchmarkRunner
 
-        runner_stub = BenchmarkRunner(os.getcwd(), repo_prefix="stub")
-        scenario_obj = runner_stub._load_scenario(os.path.join(scenarios_dir, s))
-        if scenario_obj and scenario_obj.category:
-            click.echo(f"- {s} [Category: {scenario_obj.category.value}]")
-        else:
-            click.echo(f"- {s}")
+    runner_stub = BenchmarkRunner(os.getcwd(), repo_prefix="stub")
+
+    entries = sorted(os.listdir(scenarios_dir))
+    for s in entries:
+        sc_path = os.path.join(scenarios_dir, s)
+        is_scenario = False
+        if os.path.isdir(sc_path):
+            if os.path.exists(os.path.join(sc_path, "scenario.py")):
+                is_scenario = True
+        elif s.endswith(".py") and s != "__init__.py":
+            is_scenario = True
+
+        if is_scenario:
+            scenario_obj = runner_stub._load_scenario(sc_path)
+            if scenario_obj and scenario_obj.category:
+                click.echo(f"- {s} [Category: {scenario_obj.category.value}]")
+            else:
+                click.echo(f"- {s}")
 
 
 @cli.command()
@@ -72,13 +81,18 @@ def list_scenarios():
     default=True,
     help="Automatically delete the GitHub repository after the run. Use --no-cleanup for debugging.",
 )
-def run(workflow, scenario, repo_prefix, cleanup):
+@click.option(
+    "--unaligned",
+    help="Use unaligned model for red-teaming. Can be a boolean or a specific tag (e.g., 'mistral').",
+    is_flag=True,
+)
+def run(workflow, scenario, repo_prefix, cleanup, unaligned):
     """Run a specific benchmark test."""
     from .runner import BenchmarkRunner
 
     runner = BenchmarkRunner(os.getcwd(), repo_prefix=repo_prefix)
     click.echo(f"Running benchmark on {runner.repo}: workflow={workflow}, scenario={scenario}")
-    result = runner.run(workflow, scenario, cleanup=cleanup)
+    result = runner.run(workflow, scenario, cleanup=cleanup, unaligned=unaligned)
 
     if "error" in result:
         click.echo(click.style(f"Error: {result['error']}", fg="red"))
@@ -105,7 +119,12 @@ def run(workflow, scenario, repo_prefix, cleanup):
     default=True,
     help="Automatically delete the GitHub repository after the run.",
 )
-def run_suite(workflow_labels, scenario_labels, event, repo_prefix, cleanup):
+@click.option(
+    "--unaligned",
+    help="Use unaligned model for red-teaming. Can be a boolean or a specific tag (e.g., 'mistral').",
+    is_flag=True,
+)
+def run_suite(workflow_labels, scenario_labels, event, repo_prefix, cleanup, unaligned):
     """Run a compatible suite of workflows and scenarios based on labels and event."""
     from .runner import BenchmarkRunner
 
@@ -140,9 +159,13 @@ def run_suite(workflow_labels, scenario_labels, event, repo_prefix, cleanup):
     runner_stub = BenchmarkRunner(os.getcwd(), repo_prefix="stub")
     valid_scenarios = []
     for s in os.listdir(scenarios_dir):
-        if not s.endswith(".py") or s == "__init__.py":
-            continue
         sc_path = os.path.join(scenarios_dir, s)
+        if os.path.isdir(sc_path):
+            if not os.path.exists(os.path.join(sc_path, "scenario.py")):
+                continue
+        elif not s.endswith(".py") or s == "__init__.py":
+            continue
+
         scenario_obj = runner_stub._load_scenario(sc_path)
         if not scenario_obj:
             continue
@@ -180,7 +203,7 @@ def run_suite(workflow_labels, scenario_labels, event, repo_prefix, cleanup):
     for w_name, s_name in pairs:
         click.echo("\n" + click.style(f"--- Running {w_name} against {s_name} ---", bold=True))
         runner = BenchmarkRunner(os.getcwd(), repo_prefix=repo_prefix)
-        res = runner.run(w_name, s_name, cleanup=cleanup)
+        res = runner.run(w_name, s_name, cleanup=cleanup, unaligned=unaligned)
         if "error" in res:
             click.echo(click.style(f"Error in {w_name} against {s_name}: {res['error']}", fg="red"))
         results.append(res)

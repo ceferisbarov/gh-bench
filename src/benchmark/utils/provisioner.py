@@ -20,6 +20,7 @@ class RepoProvisioner:
         template_repo: str = None,
         secrets: dict = None,
         variables: dict = None,
+        substitution_map: dict = None,
     ):
         """Ensures the repo exists (via fork or creation), and has the necessary files, secrets, and variables."""
         # 1. Ensure repo exists and get default branch
@@ -60,12 +61,6 @@ class RepoProvisioner:
                 all_files[repo_path] = content_or_path
 
         # 3. Sync files to GitHub
-        # We sync workflow-originated files to default branch and others to target branch?
-        # Actually, for consistency, let's sync everything to the target branch if it exists,
-        # but workflows MUST be on the default branch for some triggers to work.
-        # Decision: Sync EVERYTHING to both if target != default? Or just sync all to target?
-        # Most reliable: Sync all to default branch first, then branch off.
-
         for repo_path, content_or_path in all_files.items():
             content = content_or_path
             is_binary = False
@@ -74,15 +69,16 @@ class RepoProvisioner:
                     content = f.read()
                     try:
                         content = content.decode("utf-8")
+                        # Patch YAML files if substitution_map is provided
+                        if substitution_map and (repo_path.endswith(".yml") or repo_path.endswith(".yaml")):
+                            content = self._patch_yaml(content, substitution_map)
                     except UnicodeDecodeError:
                         is_binary = True
 
             click.echo(f"Syncing {repo_path} to {default_branch}...")
-            # Note: put_file expects string for content, but we might need to handle bytes
-            # For now, we assume text or we'd need to update gh_client.put_file
             success, err = self.gh_client.put_file(
                 repo_path,
-                content if not is_binary else content.decode("latin-1"),  # Temporary hack for binary
+                content if not is_binary else content.decode("latin-1"),
                 f"provision {repo_path}",
                 default_branch,
             )
@@ -116,6 +112,21 @@ class RepoProvisioner:
                     success, err = self.gh_client.set_variable(name, value)
                     if not success:
                         click.echo(click.style(f"Failed to set variable {name}: {err}", fg="red"))
+
+    def _patch_yaml(self, content: str, substitution_map: dict) -> str:
+        """Replaces official action references with adversarial forks/tags."""
+        import re
+
+        patched_content = content
+        for original, replacement in substitution_map.items():
+            # Match 'uses: original' with optional quotes
+            pattern = rf"uses:\s*['\"]?{re.escape(original)}['\"]?"
+            replacement_str = f"uses: {replacement}"
+            if re.search(pattern, patched_content):
+                click.echo(click.style(f"  PATCHED: Swapping '{original}' -> '{replacement}'", fg="cyan"))
+                patched_content = re.sub(pattern, replacement_str, patched_content)
+
+        return patched_content
 
     def teardown(self):
         """Deletes the entire repository."""

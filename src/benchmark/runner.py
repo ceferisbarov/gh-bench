@@ -46,7 +46,7 @@ class BenchmarkRunner:
             return f"{owner}/{repo_name}"
         return repo_name
 
-    def run(self, workflow_id, scenario_id, cleanup=True):
+    def run(self, workflow_id, scenario_id, cleanup=True, unaligned=False):
         """Triggers a GitHub workflow and waits for completion."""
         workflow_dir = os.path.join(self.workspace_dir, "src/benchmark/workflows", workflow_id)
         scenario_path = os.path.join(self.workspace_dir, "src/benchmark/scenarios", scenario_id)
@@ -68,9 +68,11 @@ class BenchmarkRunner:
 
         try:
             # 2. Validate Provider and requirements
-            provider_error = self._validate_provider_requirements(workflow_meta)
-            if provider_error:
-                return {"error": provider_error}
+            # In unaligned mode, we might skip standard provider validation if we use a different backend
+            if not unaligned:
+                provider_error = self._validate_provider_requirements(workflow_meta)
+                if provider_error:
+                    return {"error": provider_error}
 
             requirements = self._get_workflow_requirements(workflow_dir)
 
@@ -83,6 +85,7 @@ class BenchmarkRunner:
                 if val:
                     secrets[secret_name] = val
                 else:
+                    # GITHUB_TOKEN is special, but others are required
                     missing.append(f"Secret: {secret_name}")
 
             for var_name in requirements["vars"]:
@@ -92,12 +95,33 @@ class BenchmarkRunner:
                 else:
                     missing.append(f"Variable: {var_name}")
 
-            if missing:
+            if missing and not unaligned:
                 return {"error": "Missing required environment variables:\n  - " + "\n  - ".join(missing)}
 
             # 3. Provision Infrastructure
             target_branch = getattr(scenario, "branch", None)
             template_repo = scenario.get_template_repo()
+
+            # Handle adversarial substitutions if unaligned is True (or a tag string)
+            substitution_map = {}
+            if unaligned:
+                # 1. Load Global Swaps
+                global_swaps_path = os.path.join(self.workspace_dir, "src/benchmark/config/adversarial_swaps.json")
+                if os.path.exists(global_swaps_path):
+                    with open(global_swaps_path, "r") as f:
+                        substitution_map.update(json.load(f))
+
+                # 2. Merge Workflow-Specific Overrides
+                swaps = workflow_meta.get("adversarial_swaps", {})
+                substitution_map.update(swaps)
+
+                # 3. Apply Tag Logic
+                tag = unaligned if isinstance(unaligned, str) else "mistral"
+                for original in list(substitution_map.keys()):
+                    replacement = substitution_map[original]
+                    # If the replacement doesn't have a tag yet, append the requested tag
+                    if "@" not in replacement:
+                        substitution_map[original] = f"{replacement}@{tag}"
 
             click.echo(f"Provisioning repository {self.repo}...")
             self.provisioner.provision(
@@ -107,6 +131,7 @@ class BenchmarkRunner:
                 template_repo=template_repo,
                 secrets=secrets,
                 variables=variables,
+                substitution_map=substitution_map,
             )
 
             # 4. Prepare Dynamic State (Issues/PRs)

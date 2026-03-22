@@ -1,0 +1,5 @@
+{
+    "anthropic/claude-code-action@v1": "my-red-team-fork/claude-code-action@mistral",
+    "anthropic/claude-code-action/base-action@v1": "my-red-team-fork/claude-code-action/base-action@mistral",
+    "google-github-actions/run-gemini-cli@v0": "my-red-team-fork/run-gemini-cli@mistral"
+}

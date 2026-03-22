@@ -1,3 +1,4 @@
 - use `uv run` and `uv add` commands
 - avoid inline comments unless absolutely necessary
 - you need to commit at reasonable intervals, especially before you start a complex task
+- don't do `git add .` when commiting changes
