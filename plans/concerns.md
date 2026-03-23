@@ -1,41 +1,30 @@
 # Project Concerns & Technical Debt
 
-- [ ] Suboptimal fixed-interval polling in `BenchmarkRunner` for workflow completion.
+- [x] Suboptimal fixed-interval polling in `BenchmarkRunner` for workflow completion. (Improved with `tenacity` exponential backoff)
 - [ ] Potential command injection risk in `GitHubClient.run_gh` from unsanitized scenario data.
-- [ ] Inconsistent mix of `gh` CLI and `gh api` calls in `GitHubClient`.
-    - 1. Replace with PyGitHub
-    - 2. Or replace all `gh` subprocess calls with direct REST API calls
+- [x] Inconsistent mix of `gh` CLI and `gh api` calls in `GitHubClient`. (Mostly replaced with PyGitHub, `run_gh` kept for logs only)
 - [ ] Non-standard error handling (returning dictionaries instead of raising exceptions).
 - [ ] Sparse unit test coverage for core logic-heavy components like `Analyzer` and `Runner`.
 - [ ] Sparse integration test coverage
-- [ ] Use `AbstractScenario` to store (fork id if exists) OR use `contents` subfolder to contain the temporary repo contents
-  (contents should be tied to the scenario, not the workflow)
-- [ ] Excessive reliance on `time.sleep()` for GitHub consistency; needs robust polling with backoff.
+- [x] Use `AbstractScenario` to store contents subfolder to contain the temporary repo contents.
+- [x] Excessive reliance on `time.sleep()` for GitHub consistency; needs robust polling with backoff. (Using `tenacity`)
 - [ ] Limited attack signatures in `BenchmarkAnalyzer` (misses data exfiltration and unauthorized API calls).
-- [ ] run multiple cases at once, aggregate metrics
+- [ ] run multiple cases at once, aggregate metrics (Bulk Execution)
 - [ ] if temporary repo exists, it should throw error, not modify the repo
 - [ ] simulate issues/prs/comments created by owner/member/external 
-- [ ] cant use keywors on utility and security functions
-- [ ] need to log everything before deleting the repo
+- [ ] cant use keywords on utility and security functions
+- [x] need to log everything before deleting the repo (Implemented: saves metadata, logs, and context snapshots)
 - [ ] multiple workflows: for now, we poll for ANY workflow. this may require a better solution 
-  (maybe an unintended workflow was triggered, which would result in unpredictable behavior)
-- [ ] we should comply with githubs terms:
-  - secondary rate limits (10–20 repositories in rapid succession or more than 500 per hour.)
-  - move to self-hosted runners for large-scale runs
+- [x] we should comply with githubs terms: (Implemented RateLimiter in `GitHubClient`)
 - [x] MUST BE model agnostic (Implemented via Adversarial Substitution Framework)
-- [ ] Implement Refusal Detection in \`BenchmarkAnalyzer\` to identify when a model safety filter masks a vulnerability.
-- [ ] Complete \`mistral\`/\`unaligned\` instrumentation for all supported actions in \`actions/\`.
+- [ ] Implement Refusal Detection in `BenchmarkAnalyzer` to identify when a model safety filter masks a vulnerability.
+- [ ] Complete `mistral`/`unaligned` instrumentation for all supported actions in `actions/`.
 - [x] fix metadata format & update metadata for existing workflows
 - [x] create labels: coding vs. triage, pr vs. issue, analysis, create prs (Implemented via Workflow Taxonomy)
-- [ ] for some labels (e.g., not issue triage): collect enough scenarios to quantify utility vs. security trade-off
-- [ ] collect at least ~5 meaningfully distinct coding workflows
-- [ ] how to prevent actually leaking api keys
-- [ ] remove teardown since repos are temporary anyway
-- [ ] create a library
-- [ ] compatibility check between workflows and scenarios
-- [ ] bulk runs
+- [ ] create docs
 
-## New Technical Challenges
-- **Trigger Limitations**: `BenchmarkRunner` currently lacks support for `workflow_run` events, which are required for scenarios like CI failure investigation.
-- **Scenario Coverage Gap**: Missing scenarios for 4 out of 7 taxonomy categories (Content/Docs, Support/Intelligence, Reporting/Analytics, Code Maintenance).
-- **Environment Leakage**: Need a more robust way to ensure `ANTHROPIC_API_KEY` or `GEMINI_API_KEY` are not inadvertently leaked during malicious runs (canary detection in logs is a start).
+## High Priority Roadmap
+- [ ] **Refusal Detection**: Enhance `LLMEvaluator` and `Analyzer` to detect when a model refuses an instruction due to internal safety guardrails.
+- [ ] **Workflow Run Trigger**: Add support for `workflow_run` events in `BenchmarkRunner` to test agentic workflows that react to CI failures.
+- [ ] **Bulk Execution**: Implement a mechanism to run a matrix of (Workflows x Scenarios) and generate an aggregate report.
+- [ ] **Refine Evaluation**: Move from binary SUCCESS/FAILURE to a nuanced scoring system (0-10) with detailed reasoning.
