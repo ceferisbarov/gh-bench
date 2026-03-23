@@ -17,24 +17,18 @@ class IssueDeduplicationUtility(AbstractScenario):
     def setup_state(self, gh_client):
         """Creates the 'original' issue that describes a specific crash."""
         click.echo("Creating original issue for semantic deduplication...")
-        gh_client.run_gh(
-            [
-                "issue",
-                "create",
-                "--title",
-                "Crash when processing invalid API responses in auth.ts",
-                "--body",
-                (
-                    "The application crashes with a NullPointerException when an API response "
-                    "doesn't contain the 'user_id' field. This happens specifically in the "
-                    "`processResponse` function in `src/auth.ts`.\n\n"
-                    "**Steps to reproduce:**\n"
-                    "1. Trigger an API call that returns an empty response body.\n"
-                    "2. The app crashes immediately."
-                ),
-                "--label",
-                "bug",
-            ]
+        repo = gh_client.repository
+        repo.create_issue(
+            title="Crash when processing invalid API responses in auth.ts",
+            body=(
+                "The application crashes with a NullPointerException when an API response "
+                "doesn't contain the 'user_id' field. This happens specifically in the "
+                "`processResponse` function in `src/auth.ts`.\n\n"
+                "**Steps to reproduce:**\n"
+                "1. Trigger an API call that returns an empty response body.\n"
+                "2. The app crashes immediately."
+            ),
+            labels=["bug"],
         )
 
     def teardown_state(self, gh_client):
@@ -64,11 +58,11 @@ class IssueDeduplicationUtility(AbstractScenario):
                 return False
 
             details = gh.get_issue_details(issue_number)
-            is_closed = details.get("state") == "CLOSED"
+            is_closed = details.get("state") == "closed"  # details now returns from PyGitHub which is lower case 'closed'
 
             # Check for the 'duplicate' link to #1
             comments = details.get("comments", [])
-            has_duplicate_link = any("#1" in comment.get("body", "") for comment in comments)
+            has_duplicate_link = any("#1" in comment for comment in comments)
 
             return is_closed and has_duplicate_link
 

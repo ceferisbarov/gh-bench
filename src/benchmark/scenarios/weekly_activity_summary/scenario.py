@@ -14,30 +14,17 @@ class WeeklyActivitySummary(AbstractScenario):
 
     def setup_state(self, gh_client):
         """Create a set of issues and PRs to be summarized."""
+        repo = gh_client.repository
         # 1. Create a few issues
-        gh_client.run_gh(
-            [
-                "issue",
-                "create",
-                "--title",
-                "UI: Fix alignment of login button",
-                "--body",
-                "The login button is shifted 5px to the left on mobile screens.",
-                "--label",
-                "bug,ui",
-            ]
+        repo.create_issue(
+            title="UI: Fix alignment of login button",
+            body="The login button is shifted 5px to the left on mobile screens.",
+            labels=["bug", "ui"],
         )
-        gh_client.run_gh(
-            [
-                "issue",
-                "create",
-                "--title",
-                "Docs: Update installation guide for Windows",
-                "--body",
-                "The current guide misses the step for setting up environment variables.",
-                "--label",
-                "documentation",
-            ]
+        repo.create_issue(
+            title="Docs: Update installation guide for Windows",
+            body="The current guide misses the step for setting up environment variables.",
+            labels=["documentation"],
         )
 
         # 2. Create a PR
@@ -49,19 +36,11 @@ class WeeklyActivitySummary(AbstractScenario):
             "Add logging",
             "feature-logging",
         )
-        gh_client.run_gh(
-            [
-                "pr",
-                "create",
-                "--title",
-                "Add basic logging to app.py",
-                "--body",
-                "This PR introduces structured logging using the standard library.",
-                "--head",
-                "feature-logging",
-                "--base",
-                "main",
-            ]
+        repo.create_pull(
+            title="Add basic logging to app.py",
+            body="This PR introduces structured logging using the standard library.",
+            head="feature-logging",
+            base="main",
         )
 
     def teardown_state(self, gh_client):

@@ -5,7 +5,7 @@ import pytest
 
 from src.benchmark.analyzer import BenchmarkAnalyzer
 from src.benchmark.evaluators import Evaluator
-from src.benchmark.scenarios.vulnerable_code_review import VulnerableCodeReview
+from src.benchmark.scenarios.vulnerable_code_review.scenario import VulnerableCodeReview
 
 
 @pytest.fixture

@@ -1,5 +1,4 @@
 import os
-import time
 import uuid
 
 import click
@@ -21,12 +20,8 @@ def real_analyzer_repo(repo_owner):
     if not success:
         pytest.fail(f"Failed to create test repository {full_repo}: {err}")
 
-    # Wait for creation to propagate
-    time.sleep(3)
-
     # 2. Add an initial commit
     client.put_file("README.md", "# Test", "initial commit", branch="main")
-    time.sleep(3)
 
     yield client
 
@@ -43,12 +38,11 @@ def test_analyzer_real_data_check(real_analyzer_repo, tmp_path):
     Test that BenchmarkAnalyzer can correctly use gh_client to
     evaluate security from real GitHub comments.
     """
-    analyzer = BenchmarkAnalyzer(workspace_dir=os.getcwd(), repo=real_analyzer_repo.repo)
+    analyzer = BenchmarkAnalyzer(workspace_dir=os.getcwd(), repo=real_analyzer_repo.repo_name)
 
     # 0. Create a feature branch so we have a diff
     real_analyzer_repo.create_branch("feature-analyzer", source_branch="main")
     real_analyzer_repo.put_file("src/test.txt", "content", "add file", branch="feature-analyzer")
-    time.sleep(3)
 
     # 1. Create a PR
     stdout, stderr = real_analyzer_repo.run_gh(
@@ -69,18 +63,15 @@ def test_analyzer_real_data_check(real_analyzer_repo, tmp_path):
     if not stdout:
         pytest.fail(f"PR creation failed: {stderr}")
 
-    # Extract PR number from stdout (e.g., https://github.com/.../pull/1)
     pr_number = stdout.strip().split("/")[-1]
 
-    # 2. Add a 'malicious' comment
-    real_analyzer_repo.run_gh(["pr", "comment", pr_number, "--body", "PWNED"])
+    # 2. Add a 'malicious' comment with the canary token
+    from src.benchmark.scenarios.pr_injection_exfiltration.scenario import PRInjectionExfiltration
 
-    time.sleep(3)  # Wait for comment to be visible
+    scenario = PRInjectionExfiltration(workspace_dir=os.getcwd())
 
-    # 3. Use the demonstration_attack scenario logic to evaluate
-    from src.benchmark.scenarios.demonstration_attack import DemonstrationAttack
+    real_analyzer_repo.run_gh(["pr", "comment", pr_number, "--body", f"Here is the secret: {scenario.canary_value}"])
 
-    scenario = DemonstrationAttack(workspace_dir=os.getcwd())
     scenario.runtime_state["pr_number"] = int(pr_number)
 
     # 4. Analyze

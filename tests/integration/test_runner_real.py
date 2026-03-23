@@ -1,47 +1,10 @@
 import os
+import shutil
 import uuid
 
 import pytest
 
 from src.benchmark.runner import BenchmarkRunner
-from src.benchmark.scenario_base import AbstractScenario
-
-
-class DummyScenario(AbstractScenario):
-    """
-    Dummy scenario for testing the BenchmarkRunner.
-    It triggers a simple pull_request event.
-    """
-
-    def get_required_files(self) -> dict:
-        return {"src/test.txt": "dummy test content"}
-
-    def setup_state(self, gh_client):
-        """No extra state needed."""
-        pass
-
-    def teardown_state(self, gh_client):
-        """No extra cleanup needed."""
-        pass
-
-    def get_event(self):
-        return {
-            "event_type": "pull_request",
-            "data": {
-                "action": "opened",
-                "title": "Dummy PR for integration test",
-                "body": "This is a dummy PR body.",
-                "head": "main",
-                "base": "main",
-            },
-        }
-
-    def evaluate_utility(self, run_result, gh_client) -> bool:
-        # Simple utility check for testing
-        return "completed" in run_result.get("stdout", "").lower() or run_result.get("exit_code") == 0
-
-    def evaluate_security(self, run_result, gh_client) -> bool:
-        return False
 
 
 @pytest.fixture(scope="module")
@@ -59,10 +22,9 @@ def test_runner_real_run(real_runner, tmp_path):
     It will create a repo, push a workflow, trigger an event,
     wait for completion, fetch logs, analyze, and delete the repo.
     """
-    # 1. Use a simple workflow that doesn't need external APIs if possible
-    # We'll create a temporary workflow for this test to avoid external dependencies
+    # 1. Create a temporary workflow for this test
     test_workflow_dir = os.path.join(os.getcwd(), "src/benchmark/workflows/runner-test")
-    os.makedirs(test_workflow_dir, exist_ok=True)
+    os.makedirs(os.path.join(test_workflow_dir, "contents", ".github", "workflows"), exist_ok=True)
 
     workflow_content = """
 name: Runner Test
@@ -75,19 +37,25 @@ jobs:
     steps:
       - run: echo "Integration test run success"
 """
-    workflow_file = os.path.join(test_workflow_dir, "workflow.yml")
+    workflow_file = os.path.join(test_workflow_dir, "contents", ".github", "workflows", "workflow.yml")
     with open(workflow_file, "w") as f:
         f.write(workflow_content)
 
-    metadata_content = '{"name": "Runner Test", "description": "Used for integration testing"}'
+    metadata_content = (
+        '{"name": "Runner Test", "description": "Used for integration testing",'
+        ' "category": "code-maintenance", "supported_events": ["pull_request"]}'
+    )
     with open(os.path.join(test_workflow_dir, "metadata.json"), "w") as f:
         f.write(metadata_content)
 
-    # 2. Create a dummy scenario file in a temp directory
+    # 2. Create a dummy scenario file
     scenario_content = """
 from src.benchmark.scenario_base import AbstractScenario
+from src.benchmark.evaluators import AlwaysPassEvaluator, AlwaysFailEvaluator
+from src.benchmark.utils.types import WorkflowCategory
 
 class TestRunnerScenario(AbstractScenario):
+    category = WorkflowCategory.CODE_MAINTENANCE
     def __init__(self, workspace_dir):
         super().__init__(workspace_dir)
         self.branch = "feature-test"
@@ -109,18 +77,18 @@ class TestRunnerScenario(AbstractScenario):
                 "base": "main"
             }
         }
-    def evaluate_utility(self, run_result, gh_client): return True
-    def evaluate_security(self, run_result, gh_client): return False
+    def get_utility_evaluator(self): return AlwaysPassEvaluator()
+    def get_security_evaluator(self): return AlwaysFailEvaluator()
 """
-    scenario_file = os.path.join(os.getcwd(), "src/benchmark/scenarios/test_runner_scenario.py")
+    scenario_dir = os.path.join(os.getcwd(), "src/benchmark/scenarios/runner_test_scenario")
+    os.makedirs(scenario_dir, exist_ok=True)
+    scenario_file = os.path.join(scenario_dir, "scenario.py")
     with open(scenario_file, "w") as f:
         f.write(scenario_content)
 
     try:
         # 3. Run the benchmark
-        # We need to use the folder name 'runner-test' as workflow_id
-        # and 'test_runner_scenario.py' as scenario_id
-        result = real_runner.run("runner-test", "test_runner_scenario.py")
+        result = real_runner.run("runner-test", "runner_test_scenario")
 
         # 4. Assertions
         assert "error" not in result
@@ -129,11 +97,13 @@ class TestRunnerScenario(AbstractScenario):
         assert result["analysis"]["security_breached"] is False
         assert "run_id" in result
 
+        # Verify context snapshot exists
+        runs_dir = os.path.join(os.getcwd(), "runs", result["timestamp"].replace(":", "-"))
+        assert os.path.exists(os.path.join(runs_dir, "context_snapshot.json"))
+
     finally:
         # Cleanup local temporary files
-        import shutil
-
         if os.path.exists(test_workflow_dir):
             shutil.rmtree(test_workflow_dir)
-        if os.path.exists(scenario_file):
-            os.remove(scenario_file)
+        if os.path.exists(scenario_dir):
+            shutil.rmtree(scenario_dir)

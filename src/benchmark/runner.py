@@ -5,8 +5,10 @@ import random
 import re
 import string
 import time
+from datetime import datetime, timezone
 
 import click
+from tenacity import retry, retry_if_result, stop_after_attempt, wait_exponential
 
 from .analyzer import BenchmarkAnalyzer
 from .utils.gh_client import GitHubClient
@@ -20,22 +22,21 @@ class BenchmarkRunner:
     def __init__(self, workspace_dir, repo_prefix="benchmark-run"):
         self.workspace_dir = workspace_dir
         self.repo_prefix = repo_prefix
-        self.repo = self._generate_repo_name(repo_prefix)
-        self.gh_client = GitHubClient(repo=self.repo)
+        self.gh_client = GitHubClient()
+        self.repo_name = self._generate_repo_name(repo_prefix)
+        self.gh_client.repo_name = self.repo_name
+
         self.provisioner = RepoProvisioner(self.gh_client)
-        self.analyzer = BenchmarkAnalyzer(workspace_dir, repo=self.repo)
+        self.analyzer = BenchmarkAnalyzer(workspace_dir, repo=self.repo_name)
 
     def _generate_repo_name(self, prefix):
         """Generates a unique repo name based on a prefix."""
-        # If prefix contains a slash, assume it's owner/prefix
         if "/" in prefix:
             owner, name_prefix = prefix.split("/", 1)
         else:
-            # Try to get current user from gh CLI
-            stdout, _ = GitHubClient().run_gh(["api", "user", "-q", ".login"], use_repo=False)
-            if stdout:
-                owner = stdout.strip()
-            else:
+            try:
+                owner = self.gh_client.gh.get_user().login
+            except Exception:
                 owner = None
             name_prefix = prefix
 
@@ -54,21 +55,17 @@ class BenchmarkRunner:
         if not os.path.exists(workflow_dir) or not os.path.exists(scenario_path):
             return {"error": f"Workflow dir ({workflow_id}) or scenario ({scenario_id}) not found."}
 
-        # Load workflow metadata
         meta_path = os.path.join(workflow_dir, "metadata.json")
         workflow_meta = {}
         if os.path.exists(meta_path):
             with open(meta_path, "r") as f:
                 workflow_meta = json.load(f)
 
-        # 1. Load scenario
         scenario = self._load_scenario(scenario_path)
         if not scenario:
             return {"error": f"Failed to load scenario {scenario_id}"}
 
         try:
-            # 2. Validate Provider and requirements
-            # In unaligned mode, we might skip standard provider validation if we use a different backend
             if not unaligned:
                 provider_error = self._validate_provider_requirements(workflow_meta)
                 if provider_error:
@@ -85,7 +82,6 @@ class BenchmarkRunner:
                 if val:
                     secrets[secret_name] = val
                 else:
-                    # GITHUB_TOKEN is special, but others are required
                     missing.append(f"Secret: {secret_name}")
 
             for var_name in requirements["vars"]:
@@ -98,32 +94,26 @@ class BenchmarkRunner:
             if missing and not unaligned:
                 return {"error": "Missing required environment variables:\n  - " + "\n  - ".join(missing)}
 
-            # 3. Provision Infrastructure
             target_branch = getattr(scenario, "branch", None)
             template_repo = scenario.get_template_repo()
 
-            # Handle adversarial substitutions if unaligned is True (or a tag string)
             substitution_map = {}
             if unaligned:
-                # 1. Load Global Swaps
                 global_swaps_path = os.path.join(self.workspace_dir, "src/benchmark/config/adversarial_swaps.json")
                 if os.path.exists(global_swaps_path):
                     with open(global_swaps_path, "r") as f:
                         substitution_map.update(json.load(f))
 
-                # 2. Merge Workflow-Specific Overrides
                 swaps = workflow_meta.get("adversarial_swaps", {})
                 substitution_map.update(swaps)
 
-                # 3. Apply Tag Logic
                 tag = unaligned if isinstance(unaligned, str) else "mistral"
                 for original in list(substitution_map.keys()):
                     replacement = substitution_map[original]
-                    # If the replacement doesn't have a tag yet, append the requested tag
                     if "@" not in replacement:
                         substitution_map[original] = f"{replacement}@{tag}"
 
-            click.echo(f"Provisioning repository {self.repo}...")
+            click.echo(f"Provisioning repository {self.repo_name}...")
             self.provisioner.provision(
                 workflow_dir,
                 scenario.get_required_files(),
@@ -134,26 +124,30 @@ class BenchmarkRunner:
                 substitution_map=substitution_map,
             )
 
-            # 4. Prepare Dynamic State (Issues/PRs)
             click.echo(f"Preparing repository state for scenario '{scenario_id}'...")
             scenario.setup_state(self.gh_client)
 
-            # 5. Trigger Workflow via GitHub CLI
-            time.sleep(1)
+            timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            runs_dir = os.path.join(self.workspace_dir, "runs", timestamp.replace(":", "-"))
+            os.makedirs(runs_dir, exist_ok=True)
+
+            click.echo("Capturing context snapshot...")
+            snapshot = self._capture_context_snapshot(scenario, workflow_dir)
+            with open(os.path.join(runs_dir, "context_snapshot.json"), "w") as f:
+                json.dump(snapshot, f, indent=4)
+
             click.echo(f"Triggering workflow '{workflow_id}' on GitHub...")
-            start_time = time.time()
+            start_time = datetime.now(timezone.utc).timestamp()
             trigger_success, trigger_error = self._trigger_event(scenario)
             if not trigger_success:
                 return {"error": f"Failed to trigger GitHub event: {trigger_error}"}
 
-            # 6. Poll for completion
             click.echo("Waiting for workflow run to start and complete...")
             run_id = self._wait_for_run(start_time)
 
             if not run_id:
                 return {"error": "Timed out waiting for workflow run or could not find it."}
 
-            # 7. Fetch logs
             click.echo(f"Fetching logs for run {run_id}...")
             stdout, stderr = self._get_workflow_logs(run_id)
 
@@ -166,35 +160,61 @@ class BenchmarkRunner:
                 "scenario": scenario_id,
                 "analysis": analysis,
                 "run_id": run_id,
-                "repo": self.repo,
-                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "repo": self.repo_name,
+                "timestamp": timestamp,
                 "message": f"Successfully executed and analyzed run {run_id}.",
             }
 
-            self._save_run_locally(result, run_result)
+            self._save_run_locally(result, run_result, runs_dir)
             return result
 
         finally:
             if cleanup:
                 click.echo(f"Cleaning up repository state for scenario '{scenario_id}'...")
                 scenario.teardown_state(self.gh_client)
-                # 8. Teardown entire repo
                 self.provisioner.teardown()
             else:
-                click.echo(click.style(f"SKIP CLEANUP: Repository {self.repo} remains active for debugging.", fg="yellow"))
+                msg = f"SKIP CLEANUP: Repository {self.repo_name} remains active for debugging."
+                click.echo(click.style(msg, fg="yellow"))
+
+    def _capture_context_snapshot(self, scenario, workflow_dir):
+        """Captures the full context (files, event, meta) for diagnostic purposes."""
+        repo = self.gh_client.repository
+
+        files = {}
+        try:
+            tree = repo.get_git_tree(repo.default_branch, recursive=True)
+            for item in tree.tree:
+                if item.type == "blob":
+                    valid_exts = [".ts", ".js", ".py", ".md", ".yml", ".yaml", ".json", ".txt"]
+                    if any(item.path.endswith(ext) for ext in valid_exts):
+                        content = repo.get_contents(item.path).decoded_content.decode("utf-8")
+                        files[item.path] = content
+        except Exception as e:
+            files["error"] = str(e)
+
+        workflow_contents = {}
+        workflows_path = os.path.join(workflow_dir, "contents", ".github", "workflows")
+        if os.path.isdir(workflows_path):
+            for f in os.listdir(workflows_path):
+                if f.endswith(".yml") or f.endswith(".yaml"):
+                    with open(os.path.join(workflows_path, f), "r") as wf:
+                        workflow_contents[f] = wf.read()
+
+        return {
+            "event": scenario.get_event(),
+            "repo_files": files,
+            "workflow_definitions": workflow_contents,
+            "runtime_state": scenario.runtime_state,
+        }
 
     def _get_workflow_requirements(self, workflow_dir):
         """Scans workflow YAML files for 'secrets.NAME' and 'vars.NAME' patterns."""
         requirements = {"secrets": set(), "vars": set()}
-
-        # Regex patterns for GitHub Actions syntax
-        # Matches: ${{ secrets.NAME }} or ${{ vars.NAME }}
         secret_pattern = re.compile(r"\$\{\{\s*secrets\.(\w+)\s*\}\}")
         var_pattern = re.compile(r"\$\{\{\s*vars\.(\w+)\s*\}\}")
 
-        # Standardized structure: Look inside contents/.github/workflows/
         workflows_path = os.path.join(workflow_dir, "contents", ".github", "workflows")
-
         files = []
         if os.path.isdir(workflows_path):
             files = [
@@ -203,7 +223,6 @@ class BenchmarkRunner:
                 if f.endswith(".yml") or f.endswith(".yaml")
             ]
         elif os.path.isdir(workflow_dir):
-            # Fallback for old structure during transition
             files = [
                 os.path.join(workflow_dir, f) for f in os.listdir(workflow_dir) if f.endswith(".yml") or f.endswith(".yaml")
             ]
@@ -213,140 +232,73 @@ class BenchmarkRunner:
                 continue
             with open(file_path, "r") as f:
                 content = f.read()
-
-                # Find all secrets
                 for match in secret_pattern.finditer(content):
                     requirements["secrets"].add(match.group(1))
-
-                # Find all vars
                 for match in var_pattern.finditer(content):
                     requirements["vars"].add(match.group(1))
 
-        # Always ignore GITHUB_TOKEN as it's provided by GitHub
         if "GITHUB_TOKEN" in requirements["secrets"]:
             requirements["secrets"].remove("GITHUB_TOKEN")
-
         return requirements
 
-    def _save_run_locally(self, result, run_result):
+    def _save_run_locally(self, result, run_result, runs_dir):
         """Saves run metadata and logs to the local 'runs/' directory."""
-        runs_dir = os.path.join(self.workspace_dir, "runs", result["timestamp"].replace(":", "-"))
-        os.makedirs(runs_dir, exist_ok=True)
-
-        # Save metadata and analysis
         with open(os.path.join(runs_dir, "metadata.json"), "w") as f:
             json.dump(result, f, indent=4)
-
-        # Save logs
         with open(os.path.join(runs_dir, "stdout.log"), "w") as f:
             f.write(run_result.get("stdout", ""))
         with open(os.path.join(runs_dir, "stderr.log"), "w") as f:
             f.write(run_result.get("stderr", ""))
-
         click.echo(f"Run results saved to: {runs_dir}")
 
     def _trigger_event(self, scenario):
-        """Triggers a GitHub event (Issue/PR/Comment) to start the workflow."""
+        """Triggers the appropriate GitHub event using the GitHub API."""
         scenario_event = scenario.get_event()
         event_type = scenario_event.get("event_type")
         data = scenario_event.get("data", {})
+        repo = self.gh_client.repository
 
-        if event_type == "issues":
-            stdout, stderr = self.gh_client.run_gh(
-                [
-                    "issue",
-                    "create",
-                    "--title",
-                    data.get("title", "Test Issue"),
-                    "--body",
-                    data.get("body", "Test Body"),
-                ]
-            )
-            if stdout and "https://github.com/" in stdout:
-                issue_number = stdout.strip().split("/")[-1]
-                scenario.runtime_state["issue_number"] = int(issue_number)
+        try:
+            if event_type == "issues":
+                issue = repo.create_issue(title=data.get("title", "Test Issue"), body=data.get("body", "Test Body"))
+                scenario.runtime_state["issue_number"] = issue.number
                 return True, None
-            return False, stderr
-        elif event_type == "pull_request":
-            stdout, stderr = self.gh_client.run_gh(
-                [
-                    "pr",
-                    "create",
-                    "--title",
-                    data.get("title", "Test PR"),
-                    "--body",
-                    data.get("body", "Test Body"),
-                    "--head",
-                    data.get("head", "main"),
-                    "--base",
-                    data.get("base", "main"),
-                ]
-            )
-            if stdout and "https://github.com/" in stdout:
-                pr_number = stdout.strip().split("/")[-1]
-                scenario.runtime_state["pr_number"] = int(pr_number)
+            elif event_type == "pull_request":
+                pr = repo.create_pull(
+                    title=data.get("title", "Test PR"),
+                    body=data.get("body", "Test Body"),
+                    head=data.get("head", "main"),
+                    base=data.get("base", "main"),
+                )
+                scenario.runtime_state["pr_number"] = pr.number
                 return True, None
-            return False, stderr
-        elif event_type in ["issue_comment", "pull_request_review", "pull_request_review_comment"]:
-            # For comments and reviews, we need an existing issue or PR.
-            # Scenarios using this should have created it in setup_state or it was the most recent.
-            target_number = data.get("number")
-            if not target_number:
-                # Try to find the PR created in setup_state
-                stdout, _ = self.gh_client.run_gh(["pr", "list", "--limit", "1", "--json", "number"])
-                import json
+            elif event_type in ["issue_comment", "pull_request_review", "pull_request_review_comment"]:
+                target_number = data.get("number")
+                if not target_number:
+                    prs = repo.get_pulls(state="open", sort="created", direction="desc")
+                    if prs.totalCount > 0:
+                        target_number = prs[0].number
 
-                prs = json.loads(stdout) if stdout else []
-                if prs:
-                    target_number = prs[0]["number"]
-
-            if target_number:
-                if event_type == "pull_request_review":
-                    # Create a review
-                    stdout, stderr = self.gh_client.run_gh(
-                        [
-                            "pr",
-                            "review",
-                            str(target_number),
-                            "--comment",
-                            "--body",
-                            data.get("body", "Looks good to me."),
-                        ]
-                    )
-                else:
-                    # issue_comment or pull_request_review_comment
-                    # Note: 'gh pr comment' handles both PRs and Issues
-                    stdout, stderr = self.gh_client.run_gh(
-                        [
-                            "pr",
-                            "comment",
-                            str(target_number),
-                            "--body",
-                            data.get("body", "/review"),
-                        ]
-                    )
-
-                if stdout and "https://github.com/" in stdout:
+                if target_number:
+                    if event_type == "pull_request_review":
+                        pr = repo.get_pull(target_number)
+                        pr.create_review(body=data.get("body", "Looks good to me."), event="COMMENT")
+                    else:
+                        issue = repo.get_issue(target_number)
+                        issue.create_comment(data.get("body", "/review"))
                     return True, None
-                return False, stderr
-            return False, "Could not find a target PR/Issue for the event."
-        elif event_type == "workflow_dispatch":
-            workflow = data.get("workflow")
-            if not workflow:
-                return False, "Missing 'workflow' in event data for workflow_dispatch."
-
-            args = ["workflow", "run", workflow]
-            for field, value in data.get("inputs", {}).items():
-                args += ["-f", f"{field}={value}"]
-
-            stdout, stderr = self.gh_client.run_gh(args)
-            return stdout is not None, stderr
+                return False, "Could not find a target PR/Issue for the event."
+            elif event_type == "workflow_dispatch":
+                workflow = repo.get_workflow(data.get("workflow"))
+                workflow.create_dispatch(repo.default_branch, data.get("inputs", {}))
+                return True, None
+        except Exception as e:
+            return False, str(e)
 
         return False, f"Unknown event type: {event_type}"
 
     def _load_scenario(self, scenario_path):
         """Loads a Python scenario class."""
-        # Handle both file path and directory path
         if os.path.isdir(scenario_path):
             scenario_dir = scenario_path
             scenario_file = os.path.join(scenario_path, "scenario.py")
@@ -362,7 +314,6 @@ class BenchmarkRunner:
         if spec and spec.loader:
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
-
             for attr_name in dir(module):
                 attr = getattr(module, attr_name)
                 if (
@@ -372,78 +323,45 @@ class BenchmarkRunner:
                 ):
                     scenario_obj = attr(self.workspace_dir)
                     scenario_obj.scenario_dir = scenario_dir
-                    scenario_obj.runtime_state["repo"] = self.repo
+                    scenario_obj.runtime_state["repo"] = self.repo_name
                     return scenario_obj
         return None
 
-    def _wait_for_run(self, start_time, timeout=600):
+    @retry(
+        retry=retry_if_result(lambda res: res is None),
+        stop=stop_after_attempt(60),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+    )
+    def _wait_for_run(self, start_time):
         """Waits for any workflow run to start after start_time and then wait for completion."""
-        elapsed = 0
-        interval = 5
-        run_id = None
-        from datetime import datetime, timezone
+        repo = self.gh_client.repository
 
-        # 1. Wait for run to appear
-        while elapsed < 120:  # Wait up to 2 mins for it to appear
-            stdout, _ = self.gh_client.run_gh(
-                [
-                    "run",
-                    "list",
-                    "--json",
-                    "databaseId,status,conclusion,createdAt",
-                    "--limit",
-                    "5",
-                ]
-            )
-            if stdout:
-                try:
-                    runs = json.loads(stdout)
-                    for run in runs:
-                        created_at = datetime.strptime(run["createdAt"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
-                        if created_at.timestamp() > start_time - 30:
-                            run_id = run["databaseId"]
-                            click.echo(f"Found workflow run {run_id} (status: {run['status']})")
-                            break
-                except (json.JSONDecodeError, ValueError):
-                    pass
-
-            if run_id:
+        runs = repo.get_workflow_runs()
+        target_run = None
+        # Safely iterate over PaginatedList
+        count = 0
+        for run in runs:
+            if count >= 10:
                 break
+            if run.created_at.replace(tzinfo=timezone.utc).timestamp() > start_time - 30:
+                target_run = run
+                break
+            count += 1
 
-            time.sleep(interval)
-            elapsed += interval
-
-        if not run_id:
+        if not target_run:
             return None
 
-        # 2. Wait for this specific run to complete
-        elapsed = 0
-        interval = 5
-        while elapsed < timeout:
-            stdout, _ = self.gh_client.run_gh(
-                [
-                    "run",
-                    "view",
-                    str(run_id),
-                    "--json",
-                    "status,conclusion",
-                ]
-            )
-            if stdout:
-                try:
-                    run = json.loads(stdout)
-                    if run["status"] == "completed":
-                        return run_id
-                except (json.JSONDecodeError, ValueError):
-                    pass
+        if target_run.status != "completed":
+            click.echo(f"Workflow run {target_run.id} in progress (status: {target_run.status})...")
+            target_run.update()
+            if target_run.status != "completed":
+                return None
 
-            time.sleep(interval)
-            elapsed += interval
-
-        return None
+        return target_run.id
 
     def _get_workflow_logs(self, run_id):
         """Retrieves the full logs for a specific workflow run."""
+        # Note: Using gh CLI here because pygithub doesn't easily expose full logs in a single call
         stdout, stderr = self.gh_client.run_gh(["run", "view", str(run_id), "--log"])
         return stdout, stderr
 
@@ -452,21 +370,15 @@ class BenchmarkRunner:
         provider = meta.get("provider")
         if not provider:
             return None
-
-        # Map providers to their required local env vars
         provider_keys = {
             AIProvider.GOOGLE_GEMINI: ["GEMINI_API_KEY"],
             AIProvider.ANTHROPIC_CLAUDE: ["ANTHROPIC_API_KEY"],
             AIProvider.OPENAI_CODEX: ["OPENAI_API_KEY"],
             AIProvider.AMAZON_Q: ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
             AIProvider.GITHUB_COPILOT: ["COPILOT_GITHUB_TOKEN"],
-            # ... others can be added as they are implemented
         }
-
         required_keys = provider_keys.get(provider, [])
         missing = [key for key in required_keys if not os.environ.get(key)]
-
         if missing:
             return f"Provider '{provider}' requires the following API keys in your local environment: {', '.join(missing)}"
-
         return None

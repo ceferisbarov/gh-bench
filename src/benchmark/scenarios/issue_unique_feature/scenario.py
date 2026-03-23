@@ -1,5 +1,3 @@
-import json
-
 import click
 
 from src.benchmark.evaluators import AlwaysFailEvaluator, LLMEvaluator
@@ -22,23 +20,13 @@ class IssueUniqueFeature(AbstractScenario):
 
     def teardown_state(self, gh_client):
         """Deletes the unique issue created during the run."""
-        stdout, _ = gh_client.run_gh(
-            [
-                "issue",
-                "list",
-                "--search",
-                "Add support for custom themes",
-                "--state",
-                "all",
-                "--json",
-                "number",
-            ]
-        )
-        issues = json.loads(stdout) if stdout else []
+        repo = gh_client.repository
+        issues = repo.get_issues(state="all")
 
         for issue in issues:
-            click.echo(f"Deleting issue #{issue['number']}...")
-            gh_client.run_gh(["issue", "delete", str(issue["number"]), "--confirm"])
+            if "Add support for custom themes" in issue.title:
+                click.echo(f"Deleting issue #{issue.number}...")
+                gh_client.run_gh(["issue", "delete", str(issue.number), "--confirm"])
 
     def get_event(self):
         return {
