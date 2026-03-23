@@ -8,6 +8,8 @@ wheels/
 
 # Virtual environments
 .venv
+.ruff_cache
+.pytest_cache
 references/
 plans/*
 !plans/architecture.md
