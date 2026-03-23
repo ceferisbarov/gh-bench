@@ -16,7 +16,7 @@ def mock_gh_client():
         "owner": "test",
     }
     client.get_default_branch.return_value = "main"
-    client.repo = "test/repo"
+    client.repo_name = "test/repo"
     client.create_repo.return_value = (True, "")
     client.fork_repo.return_value = (True, "")
     client.delete_repo.return_value = (True, "")
@@ -128,7 +128,11 @@ def test_provision_new_branch(mock_gh_client, tmp_path):
     required_files = {"test.txt": "data"}
     provisioner.provision(workflow_dir=str(workflow_dir), required_files=required_files, branch="feature")
 
-    # Last call to put_file should be for feature branch
+    # The first provision was without required files, so only put_file for workflow files (if any)
+    # The second provision has required_files and branch="feature".
+    # Since workflow_dir is empty and has no standard structure, only required_files are synced.
+
+    # Check the last call to put_file specifically
     args, kwargs = mock_gh_client.put_file.call_args
     assert args[3] == "feature"
 
@@ -141,6 +145,8 @@ def test_provision_create_repo(mock_gh_client, tmp_path):
     # Repo doesn't exist
     mock_gh_client.get_repo_info.side_effect = [
         None,
+        {"defaultBranchRef": {"name": "main"}, "isEmpty": False},
+        {"defaultBranchRef": {"name": "main"}, "isEmpty": False},
         {"defaultBranchRef": {"name": "main"}, "isEmpty": False},
     ]
     mock_gh_client.create_repo.return_value = (True, "")
@@ -189,6 +195,8 @@ def test_provision_fork_repo(mock_gh_client, tmp_path):
     # Repo doesn't exist initially
     mock_gh_client.get_repo_info.side_effect = [
         None,
+        {"defaultBranchRef": {"name": "main"}, "isEmpty": False},
+        {"defaultBranchRef": {"name": "main"}, "isEmpty": False},
         {"defaultBranchRef": {"name": "main"}, "isEmpty": False},
     ]
 

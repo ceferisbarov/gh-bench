@@ -1,4 +1,3 @@
-import time
 import uuid
 
 import click
@@ -29,11 +28,21 @@ def test_provisioner_real_provision(real_gh_client, tmp_path):
     """Real integration test for RepoProvisioner.provision."""
     provisioner = RepoProvisioner(real_gh_client)
 
-    # Create a dummy workflow file
+    # Create a dummy workflow directory structure
     workflow_dir = tmp_path / "test-workflow"
-    workflow_dir.mkdir()
-    workflow_file = workflow_dir / "ci.yml"
-    workflow_file.write_text("name: Test CI\non: push\njobs: test: runs-on: ubuntu-latest\n  steps: - run: echo hello")
+    contents_dir = workflow_dir / "contents" / ".github" / "workflows"
+    contents_dir.mkdir(parents=True)
+    workflow_file = contents_dir / "ci.yml"
+    workflow_content = (
+        "name: Test CI\n"
+        "on: push\n"
+        "jobs:\n"
+        "  test:\n"
+        "    runs-on: ubuntu-latest\n"
+        "    steps:\n"
+        "      - run: echo hello"
+    )
+    workflow_file.write_text(workflow_content)
 
     # Create a dummy scenario file
     scenario_file = tmp_path / "scenario.txt"
@@ -42,25 +51,18 @@ def test_provisioner_real_provision(real_gh_client, tmp_path):
     required_files = {"src/scenario.txt": str(scenario_file), "data/config.json": '{"test": true}'}
 
     # Run provision
-    provisioner.provision(workflow_path=str(workflow_file), required_files=required_files, branch="bench-branch")
-
-    # Wait for propagation
-    time.sleep(3)
+    provisioner.provision(workflow_dir=str(workflow_dir), required_files=required_files, branch="bench-branch")
 
     # Verify results
-    # 1. Workflow should be in default branch (main)
-    files_main = real_gh_client.list_files(branch="main")
-    assert ".github/workflows/test-workflow.yml" in files_main
-    assert "README.md" in files_main
-
-    # 2. Branch should exist
-    branch_info = real_gh_client.get_branch_info("bench-branch")
-    assert branch_info.get("name") == "bench-branch"
-
-    # 3. Scenario files should be in bench-branch
+    # 1. Workflow and scenario files should be in the target branch (bench-branch)
     files_bench = real_gh_client.list_files(branch="bench-branch")
+    assert ".github/workflows/ci.yml" in files_bench
     assert "src/scenario.txt" in files_bench
     assert "data/config.json" in files_bench
+
+    # 2. Default branch (main) should only have README.md (from initial commit)
+    files_main = real_gh_client.list_files(branch="main")
+    assert "README.md" in files_main
 
 
 def test_provisioner_real_fork(tmp_path, repo_owner):
@@ -72,8 +74,7 @@ def test_provisioner_real_fork(tmp_path, repo_owner):
     provisioner = RepoProvisioner(client)
 
     try:
-        provisioner.provision(workflow_path="none", template_repo=template)
-        time.sleep(3)
+        provisioner.provision(workflow_dir="none", template_repo=template)
 
         info = client.get_repo_info()
         assert info.get("name") == repo_name

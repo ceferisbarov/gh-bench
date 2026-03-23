@@ -8,8 +8,11 @@ from src.benchmark.utils.gh_client import GitHubClient
 def resolve_owner():
     if os.environ.get("GITHUB_OWNER"):
         return os.environ.get("GITHUB_OWNER")
-    stdout, _ = GitHubClient().run_gh(["api", "user", "-q", ".login"], use_repo=False)
-    return stdout.strip() if stdout else "unknown"
+    try:
+        client = GitHubClient()
+        return client.gh.get_user().login
+    except Exception:
+        return "unknown"
 
 
 @pytest.fixture(scope="session")

@@ -1,215 +1,151 @@
-import base64
-import json
+from unittest.mock import MagicMock, patch
+
+import pytest
+from github import GithubException
 
 from src.benchmark.utils.gh_client import GitHubClient
 
 
-def test_gh_client_run_gh_success(mocker):
-    # Mock subprocess.run
-    mock_run = mocker.patch("subprocess.run")
-    mock_run.return_value.returncode = 0
-    mock_run.return_value.stdout = "some output"
-    mock_run.return_value.stderr = ""
+@pytest.fixture
+def mock_github():
+    with patch("src.benchmark.utils.gh_client.Github") as mock:
+        # Mock the token retrieval to avoid subprocess calls during init
+        with patch("src.benchmark.utils.gh_client.GitHubClient._get_token", return_value="fake-token"):
+            yield mock
 
+
+def test_gh_client_get_repo_info(mock_github):
     client = GitHubClient(repo="test/repo")
-    stdout, stderr = client.run_gh(["pr", "list"])
+    mock_repo = MagicMock()
+    mock_repo.name = "repo"
+    mock_repo.owner.login = "test"
+    mock_repo.default_branch = "main"
+    mock_repo.size = 100
+    mock_github.return_value.get_repo.return_value = mock_repo
 
-    # Verify command construction
-    expected_cmd = ["gh", "pr", "list", "-R", "test/repo"]
-    mock_run.assert_called_with(expected_cmd, capture_output=True, text=True, env=mocker.ANY)
-    assert stdout == "some output"
-    assert stderr == ""
+    info = client.get_repo_info()
+
+    assert info["name"] == "repo"
+    assert info["owner"]["login"] == "test"
+    assert info["defaultBranchRef"]["name"] == "main"
+    assert info["isEmpty"] is False
+    mock_github.return_value.get_repo.assert_called_with("test/repo")
 
 
-def test_gh_client_get_repo_info(mocker):
-    mock_run = mocker.patch("subprocess.run")
-    mock_run.return_value.returncode = 0
-    repo_data = {"defaultBranchRef": {"name": "main"}, "isEmpty": False}
-    mock_run.return_value.stdout = json.dumps(repo_data)
-    mock_run.return_value.stderr = ""
-
+def test_gh_client_create_repo(mock_github):
     client = GitHubClient(repo="test/repo")
-    info = info = client.get_repo_info()
+    mock_user = MagicMock()
+    mock_user.login = "test"
+    mock_github.return_value.get_user.return_value = mock_user
 
-    assert info == repo_data
-    called_args = mock_run.call_args[0][0]
-    assert "api" in called_args
-    assert any("repos/{owner}/{repo}" in arg for arg in called_args)
-
-
-def test_gh_client_create_repo(mocker):
-    mock_run = mocker.patch("subprocess.run")
-    mock_run.return_value.returncode = 0
-    mock_run.return_value.stdout = "https://github.com/test/repo"
-    mock_run.return_value.stderr = ""
-
-    client = GitHubClient(repo="test/repo")
     success, err = client.create_repo(public=True)
 
     assert success is True
-    called_args = mock_run.call_args[0][0]
-    assert "repo" in called_args
-    assert "create" in called_args
-    assert "test/repo" in called_args
-    assert "--public" in called_args
-    # Verify use_repo=False (no -R test/repo)
-    assert "-R" not in called_args
+    # create_repo is called on the user/org, and we extract name from self.repo_name
+    mock_user.create_repo.assert_called_with("repo", private=False)
 
 
-def test_gh_client_get_branch_info(mocker):
-    mock_run = mocker.patch("subprocess.run")
-    mock_run.return_value.returncode = 0
-    branch_data = {"name": "main"}
-    mock_run.return_value.stdout = json.dumps(branch_data)
-    mock_run.return_value.stderr = ""
-
+def test_gh_client_get_branch_info(mock_github):
     client = GitHubClient(repo="test/repo")
+    mock_repo = MagicMock()
+    mock_branch = MagicMock()
+    mock_branch.name = "main"
+    mock_branch.commit.sha = "abc123"
+    mock_repo.get_branch.return_value = mock_branch
+    mock_github.return_value.get_repo.return_value = mock_repo
+
     info = client.get_branch_info("main")
 
-    assert info == branch_data
-    called_args = mock_run.call_args[0][0]
-    assert "api" in called_args
-    assert any("repos/{owner}/{repo}/branches/main" in arg for arg in called_args)
+    assert info["name"] == "main"
+    assert info["commit"]["sha"] == "abc123"
+    mock_repo.get_branch.assert_called_with("main")
 
 
-def test_gh_client_create_branch(mocker):
-    mock_run = mocker.patch("subprocess.run")
-
-    # Mock sequence: 1. get_default_branch (repo info), 2. get SHA, 3. create branch
-    def side_effect(cmd, **kwargs):
-        from unittest.mock import MagicMock
-
-        m = MagicMock()
-        m.returncode = 0
-        m.stderr = ""
-        cmd_str = " ".join(cmd)
-        if "repo view" in cmd_str:
-            m.stdout = json.dumps({"defaultBranchRef": {"name": "main"}})
-        elif "git/refs/heads/main" in cmd_str:
-            m.stdout = json.dumps({"object": {"sha": "abc123"}})
-        elif "POST" in cmd_str and "git/refs" in cmd_str:
-            m.stdout = json.dumps({"ref": "refs/heads/new-feature"})
-        else:
-            m.stdout = ""
-        return m
-
-    mock_run.side_effect = side_effect
-
+def test_gh_client_create_branch(mock_github):
     client = GitHubClient(repo="test/repo")
+    mock_repo = MagicMock()
+    mock_repo.default_branch = "main"
+    mock_branch = MagicMock()
+    mock_branch.commit.sha = "abc123"
+    mock_repo.get_branch.return_value = mock_branch
+    mock_github.return_value.get_repo.return_value = mock_repo
+
     success, err = client.create_branch("new-feature")
 
     assert success is True
-    # Verify the last call was POST to create the ref
-    last_call_args = mock_run.call_args_list[-1][0][0]
-    last_call_str = " ".join(last_call_args)
-    assert "api" in last_call_str
-    assert "--method POST" in last_call_str
-    assert "git/refs" in last_call_str
-    assert "ref=refs/heads/new-feature" in last_call_str
-    assert "sha=abc123" in last_call_str
+    mock_repo.create_git_ref.assert_called_with(ref="refs/heads/new-feature", sha="abc123")
 
 
-def test_gh_client_put_file(mocker):
-    mock_run = mocker.patch("subprocess.run")
-
-    # Mock sequence: 1. get_default_branch, 2. get file SHA (404/empty), 3. PUT file
-    def side_effect(cmd, **kwargs):
-        from unittest.mock import MagicMock
-
-        m = MagicMock()
-        m.returncode = 0
-        m.stderr = ""
-        cmd_str = " ".join(cmd)
-        if "repo view" in cmd_str:
-            m.stdout = json.dumps({"defaultBranchRef": {"name": "main"}})
-        elif "contents/test.txt" in cmd_str and "PUT" not in cmd_str:
-            m.stdout = ""  # File doesn't exist
-        elif "PUT" in cmd_str:
-            m.stdout = json.dumps({"content": {"name": "test.txt"}})
-        else:
-            m.stdout = ""
-        return m
-
-    mock_run.side_effect = side_effect
-
+def test_gh_client_put_file_create(mock_github):
     client = GitHubClient(repo="test/repo")
+    mock_repo = MagicMock()
+    mock_repo.default_branch = "main"
+    # Mock file not existing (get_contents raises 404)
+    mock_repo.get_contents.side_effect = GithubException(404, {"message": "Not Found"}, {})
+    mock_github.return_value.get_repo.return_value = mock_repo
+
     success, err = client.put_file("test.txt", "hello world", "commit msg", branch="main")
 
     assert success is True
-    last_call_args = mock_run.call_args_list[-1][0][0]
-    last_call_str = " ".join(last_call_args)
-    assert "api" in last_call_str
-    assert "PUT" in last_call_str
-    assert "message=commit msg" in last_call_str
-    assert "branch=main" in last_call_str
-    # content should be base64 of "hello world"
-    expected_content = base64.b64encode(b"hello world").decode()
-    assert f"content={expected_content}" in last_call_str
+    mock_repo.create_file.assert_called_with("test.txt", "commit msg", "hello world", branch="main")
 
 
-def test_gh_client_get_pr_details(mocker):
-    mock_run = mocker.patch("subprocess.run")
-    mock_run.return_value.returncode = 0
-    mock_run.return_value.stdout = json.dumps({"title": "Fix bug", "body": "Fixed it.", "comments": []})
-    mock_run.return_value.stderr = ""
-
+def test_gh_client_put_file_update(mock_github):
     client = GitHubClient(repo="test/repo")
+    mock_repo = MagicMock()
+    mock_repo.default_branch = "main"
+    mock_content = MagicMock()
+    mock_content.sha = "old-sha"
+    mock_repo.get_contents.return_value = mock_content
+    mock_github.return_value.get_repo.return_value = mock_repo
+
+    success, err = client.put_file("test.txt", "new content", "update msg", branch="main")
+
+    assert success is True
+    mock_repo.update_file.assert_called_with("test.txt", "update msg", "new content", "old-sha", branch="main")
+
+
+def test_gh_client_get_pr_details(mock_github):
+    client = GitHubClient(repo="test/repo")
+    mock_repo = MagicMock()
+    mock_pr = MagicMock()
+    mock_pr.title = "Fix bug"
+    mock_pr.body = "Fixed it."
+    mock_pr.state = "open"
+    mock_comment = MagicMock()
+    mock_comment.body = "LGTM"
+    mock_pr.get_issue_comments.return_value = [mock_comment]
+    mock_repo.get_pull.return_value = mock_pr
+    mock_github.return_value.get_repo.return_value = mock_repo
+
     details = client.get_pr_details(42)
 
     assert details["title"] == "Fix bug"
     assert details["body"] == "Fixed it."
-    called_args = mock_run.call_args[0][0]
-    assert "pr" in called_args
-    assert "view" in called_args
-    assert "42" in called_args
+    assert "LGTM" in details["comments"]
+    mock_repo.get_pull.assert_called_with(42)
 
 
-def test_gh_client_fork_repo(mocker):
-    mock_run = mocker.patch("subprocess.run")
-    mock_run.return_value.returncode = 0
-    mock_run.return_value.stdout = "https://github.com/my-user/new-repo"
-    mock_run.return_value.stderr = ""
-
+def test_gh_client_fork_repo(mock_github):
     client = GitHubClient(repo="my-user/new-repo")
+    mock_template_repo = MagicMock()
+    mock_github.return_value.get_repo.return_value = mock_template_repo
+    mock_user = MagicMock()
+    mock_user.login = "my-user"
+    mock_github.return_value.get_user.return_value = mock_user
+
     success, err = client.fork_repo("source/template")
 
     assert success is True
-    called_args = mock_run.call_args[0][0]
-    assert "repo" in called_args
-    assert "fork" in called_args
-    assert "source/template" in called_args
-    assert "--fork-name" in called_args
-    assert "new-repo" in called_args
-    assert "--clone=false" in called_args
-    assert "-R" not in called_args
+    mock_user.create_fork.assert_called_with(mock_template_repo, name="new-repo")
 
 
-def test_gh_client_delete_repo(mocker):
-    mock_run = mocker.patch("subprocess.run")
-    mock_run.return_value.returncode = 0
-    mock_run.return_value.stdout = "Deleted repository my-user/new-repo"
-    mock_run.return_value.stderr = ""
+def test_gh_client_delete_repo(mock_github):
+    client = GitHubClient(repo="test/repo")
+    mock_repo = MagicMock()
+    mock_github.return_value.get_repo.return_value = mock_repo
 
-    client = GitHubClient(repo="my-user/new-repo")
     success, err = client.delete_repo()
 
     assert success is True
-    called_args = mock_run.call_args[0][0]
-    assert "repo" in called_args
-    assert "delete" in called_args
-    assert "my-user/new-repo" in called_args
-    assert "--yes" in called_args
-    assert "-R" not in called_args
-
-
-def test_gh_client_auth_error(mocker, capsys):
-    mock_run = mocker.patch("subprocess.run")
-    mock_run.return_value.returncode = 1
-    mock_run.return_value.stdout = ""
-    mock_run.return_value.stderr = "error: not authenticated"
-
-    client = GitHubClient(repo="test/repo")
-    client.run_gh(["repo", "view"])
-
-    captured = capsys.readouterr()
-    assert "GitHub CLI is not authenticated" in captured.err
+    mock_repo.delete.assert_called_once()

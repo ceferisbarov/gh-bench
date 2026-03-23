@@ -1,326 +1,335 @@
-import base64
-import json
+import logging
 import os
 import subprocess
 import time
+from typing import Any, Dict, List, Optional, Tuple
 
 import click
+from github import Github, GithubException, Repository
+from tenacity import (
+    before_sleep_log,
+    retry,
+    retry_if_exception_type,
+    retry_if_result,
+    stop_after_attempt,
+    wait_exponential,
+)
+
+logger = logging.getLogger(__name__)
+
+
+class RateLimiter:
+    """Simple rate limiter to prevent hitting GitHub secondary rate limits."""
+
+    def __init__(self):
+        max_calls = os.environ.get("GITHUB_MAX_CALLS_PER_MINUTE", 20)
+        self.enabled = max_calls is not None
+        if self.enabled:
+            self.delay = 60.0 / float(max_calls)
+            self.last_call = 0.0
+
+    def wait(self):
+        if not self.enabled:
+            return
+        now = time.time()
+        elapsed = now - self.last_call
+        if elapsed < self.delay:
+            time.sleep(self.delay - elapsed)
+        self.last_call = time.time()
+
+
+rate_limiter = RateLimiter()
 
 
 class GitHubClient:
-    """A wrapper for the GitHub CLI (gh) to interact with repos."""
+    """A wrapper for PyGitHub to interact with repositories."""
 
-    def __init__(self, repo="owner/repo"):
-        self.repo = repo
+    def __init__(self, repo: str = "owner/repo"):
+        self.repo_name = repo
+        self.token = self._get_token()
+        self.gh = Github(self.token)
+        self._repo_cache: Optional[Repository.Repository] = None
 
-    def run_gh(self, args, retries=3, delay=1, use_repo=True, retry_404=True):
-        """Runs a generic gh command and returns the output with retries for sync issues."""
-        cmd = ["gh"] + args
-
-        is_api = args and args[0] == "api"
-        env = os.environ.copy()
-
-        if use_repo:
-            if is_api:
-                # Setting GH_REPO allows using {owner}, {repo}, {branch} placeholders
-                env["GH_REPO"] = self.repo
-            else:
-                cmd += ["-R", self.repo]
-
-        last_stdout, last_stderr = "", ""
-
-        for i in range(retries + 1):
-            result = subprocess.run(cmd, capture_output=True, text=True, env=env)
-            last_stdout, last_stderr = result.stdout, result.stderr
-
-            if result.returncode == 0:
-                return last_stdout, last_stderr
-
-            low_stderr = last_stderr.lower()
-            if "not authenticated" in low_stderr:
-                click.echo(
-                    click.style(
-                        "Error: GitHub CLI is not authenticated. Please run 'gh auth login' " "or set GITHUB_TOKEN.",
-                        fg="red",
-                    ),
-                    err=True,
-                )
-                return None, last_stderr
-
-            # Common sync issues
-            retryable_errors = [
-                "could not resolve to a repository",
-                "repository not found",
-                "not found",
-                "failed to get",
-                "empty identifier",
-            ]
-            if retry_404:
-                retryable_errors.append("404")
-
-            if any(err in low_stderr for err in retryable_errors) and i < retries:
-                time.sleep(delay)
-                continue
-
-            break
-
-        return None, last_stderr
-
-    def get_repo_info(self):
-        """Fetches repository information using the GitHub API."""
-        # Using API placeholders {owner}/{repo}
-        stdout, _ = self.run_gh(["api", "repos/{owner}/{repo}"], retry_404=False)
-        if not stdout:
-            # Fallback to repo view just in case
-            stdout, _ = self.run_gh(["repo", "view", "--json", "defaultBranchRef,isEmpty,name,owner"], retry_404=False)
-
-        if not stdout:
-            return None
+    def _get_token(self) -> str:
+        """Retrieves GitHub token from environment or gh CLI."""
+        token = os.environ.get("GITHUB_TOKEN")
+        if token:
+            return token
 
         try:
-            data = json.loads(stdout)
-            # Normalize fields between API and 'gh repo view' if needed
-            if "default_branch" in data and "defaultBranchRef" not in data:
-                data["defaultBranchRef"] = {"name": data["default_branch"]}
-            if "size" in data and "isEmpty" not in data:
-                data["isEmpty"] = data["size"] == 0
-            return data
-        except json.JSONDecodeError:
-            return None
-
-    def get_default_branch(self):
-        """Returns the name of the default branch."""
-        info = self.get_repo_info()
-        if not info:
-            return "main"
-        if "defaultBranchRef" in info:
-            return info["defaultBranchRef"].get("name") or "main"
-        return info.get("default_branch") or "main"
-
-    def create_repo(self, public=True):
-        """Creates the repository if it doesn't exist."""
-        args = ["repo", "create", self.repo, "--confirm"]
-        if public:
-            args.append("--public")
-        else:
-            args.append("--private")
-
-        stdout, stderr = self.run_gh(args, use_repo=False)
-        return stdout is not None and ("https://github.com/" in stdout or "Created repository" in stdout), stderr
-
-    def fork_repo(self, template_repo):
-        """Forks a template repository into a new unique name."""
-        # template_repo is the full path e.g. "owner/repo"
-        # self.repo is the new name e.g. "my-user/new-repo"
-        new_name = self.repo.split("/")[-1]
-        args = ["repo", "fork", template_repo, "--fork-name", new_name, "--clone=false"]
-        stdout, stderr = self.run_gh(args, use_repo=False)
-        return stdout is not None and ("https://github.com/" in stdout or "Created fork" in stdout), stderr
-
-    def delete_repo(self):
-        """Deletes the current repository."""
-        args = ["repo", "delete", self.repo, "--yes"]
-        stdout, stderr = self.run_gh(args, use_repo=False)
-
-        if stderr and "delete_repo" in stderr:
+            result = subprocess.run(["gh", "auth", "token"], capture_output=True, text=True, check=True)
+            return result.stdout.strip()
+        except (subprocess.CalledProcessError, FileNotFoundError):
             click.echo(
                 click.style(
-                    "\nERROR: Missing 'delete_repo' scope. Please run:\n" "  gh auth refresh -h github.com -s delete_repo\n",
-                    fg="yellow",
-                    bold=True,
-                )
+                    "Error: GitHub token not found. Please set GITHUB_TOKEN or run 'gh auth login'.",
+                    fg="red",
+                ),
+                err=True,
             )
+            raise RuntimeError("Missing GitHub authentication")
 
-        return stdout is not None, stderr
+    @property
+    def repository(self) -> Repository.Repository:
+        """Lazily loads and returns the Repository object."""
+        if self._repo_cache is None:
+            rate_limiter.wait()
+            self._repo_cache = self.gh.get_repo(self.repo_name)
+        return self._repo_cache
 
-    def get_branch_info(self, branch_name):
-        """Checks if a branch exists and returns its info."""
-        stdout, _ = self.run_gh(["api", f"repos/{{owner}}/{{repo}}/branches/{branch_name}"])
-        if not stdout:
-            return None
+    def get_repo_info(self) -> Optional[Dict[str, Any]]:
+        """Fetches repository information."""
         try:
-            return json.loads(stdout)
-        except json.JSONDecodeError:
-            return None
+            repo = self.repository
+            return {
+                "name": repo.name,
+                "owner": {"login": repo.owner.login},
+                "defaultBranchRef": {"name": repo.default_branch},
+                "isEmpty": repo.size == 0,
+                "size": repo.size,
+                "default_branch": repo.default_branch,
+            }
+        except GithubException as e:
+            if e.status == 404:
+                return None
+            raise
 
-    def create_branch(self, new_branch, source_branch=None):
-        """Creates a new branch from a source branch (defaults to repository default branch)."""
+    def get_default_branch(self) -> str:
+        """Returns the name of the default branch."""
+        try:
+            return self.repository.default_branch
+        except GithubException:
+            return "main"
+
+    def create_repo(self, public: bool = True) -> Tuple[bool, str]:
+        """Creates the repository if it doesn't exist."""
+        try:
+            name = self.repo_name.split("/")[-1]
+            if "/" in self.repo_name:
+                owner = self.repo_name.split("/", 1)[0]
+                user = self.gh.get_user()
+                if user.login.lower() == owner.lower():
+                    user.create_repo(name, private=not public)
+                else:
+                    org = self.gh.get_organization(owner)
+                    org.create_repo(name, private=not public)
+            else:
+                self.gh.get_user().create_repo(name, private=not public)
+            return True, ""
+        except GithubException as e:
+            return False, str(e)
+
+    def fork_repo(self, template_repo_name: str) -> Tuple[bool, str]:
+        """Forks a template repository into a new unique name."""
+        try:
+            template_repo = self.gh.get_repo(template_repo_name)
+            name = self.repo_name.split("/")[-1]
+
+            # Handle organization if specified in repo_name
+            org = None
+            if "/" in self.repo_name:
+                owner = self.repo_name.split("/", 1)[0]
+                user = self.gh.get_user()
+                if user.login.lower() != owner.lower():
+                    org = owner
+
+            if org:
+                template_repo.create_fork(organization=org, name=name)
+            else:
+                template_repo.create_fork(name=name)
+
+            @retry(
+                retry=retry_if_result(lambda res: res is False),
+                stop=stop_after_attempt(15),
+                wait=wait_exponential(multiplier=1, min=2, max=10),
+            )
+            def wait_for_fork():
+                try:
+                    self._repo_cache = None
+                    info = self.get_repo_info()
+                    if not info:
+                        return False
+                    # Try to access the repository content to ensure it's ready on disk
+                    # This prevents 403 Forbidden on subsequent DELETE or other ops
+                    self.repository.get_contents("")
+                    return True
+                except GithubException:
+                    return False
+
+            wait_for_fork()
+            return True, ""
+        except Exception as e:
+            return False, str(e)
+
+    @retry(
+        retry=retry_if_exception_type(GithubException),
+        stop=stop_after_attempt(10),
+        wait=wait_exponential(multiplier=2, min=4, max=30),
+    )
+    def delete_repo(self) -> Tuple[bool, str]:
+        """Deletes the current repository."""
+        try:
+            self.repository.delete()
+            self._repo_cache = None
+            return True, ""
+        except GithubException as e:
+            if e.status == 404:
+                return True, ""  # Already gone
+            if e.status == 403:
+                if "delete_repo" in str(e):
+                    msg = (
+                        "\nERROR: Missing 'delete_repo' scope. Please run:\n"
+                        "  gh auth refresh -h github.com -s delete_repo\n"
+                    )
+                    click.echo(click.style(msg, fg="yellow", bold=True))
+                elif "done being created on disk" in str(e):
+                    # Re-raise to let the retry decorator handle it
+                    raise e
+            return False, str(e)
+
+    def get_branch_info(self, branch_name: str) -> Optional[Dict[str, Any]]:
+        """Checks if a branch exists and returns its info."""
+        try:
+            branch = self.repository.get_branch(branch_name)
+            return {"name": branch.name, "commit": {"sha": branch.commit.sha}}
+        except GithubException as e:
+            if e.status == 404:
+                return None
+            raise
+
+    def create_branch(self, new_branch: str, source_branch: Optional[str] = None) -> Tuple[bool, str]:
+        """Creates a new branch from a source branch."""
         if not source_branch:
             source_branch = self.get_default_branch()
 
-        # 1. Get SHA of source branch
-        stdout, _ = self.run_gh(["api", f"repos/{{owner}}/{{repo}}/git/refs/heads/{source_branch}"])
-        if not stdout:
-            return False, f"Failed to get SHA for source branch {source_branch}"
         try:
-            source_sha = json.loads(stdout).get("object", {}).get("sha")
-            if not source_sha:
-                return False, f"Could not find SHA for source branch {source_branch}"
-        except json.JSONDecodeError:
-            return False, f"Failed to parse source branch info for {source_branch}"
+            sb = self.repository.get_branch(source_branch)
+            self.repository.create_git_ref(ref=f"refs/heads/{new_branch}", sha=sb.commit.sha)
+            return True, ""
+        except GithubException as e:
+            return False, str(e)
 
-        # 2. Create the new branch
-        stdout, stderr = self.run_gh(
-            [
-                "api",
-                "--method",
-                "POST",
-                "repos/{owner}/{repo}/git/refs",
-                "-f",
-                f"ref=refs/heads/{new_branch}",
-                "-f",
-                f"sha={source_sha}",
-            ]
-        )
-
-        return stdout is not None and "ref" in stdout, stderr
-
-    def get_file_sha(self, path, branch=None):
+    def get_file_sha(self, path: str, branch: Optional[str] = None) -> Optional[str]:
         """Gets the SHA of a file on a specific branch."""
-        endpoint = f"repos/{{owner}}/{{repo}}/contents/{path}"
-        args = ["api", endpoint]
-        if branch:
-            args += ["-F", f"ref={branch}", "--method", "GET"]
-
-        stdout, _ = self.run_gh(args)
-        if not stdout:
-            return None
         try:
-            data = json.loads(stdout)
-            if isinstance(data, list):  # It's a directory
+            kwargs = {}
+            if branch:
+                kwargs["ref"] = branch
+            content = self.repository.get_contents(path, **kwargs)
+            if isinstance(content, list):
                 return None
-            return data.get("sha")
-        except (json.JSONDecodeError, AttributeError):
-            return None
+            return content.sha
+        except GithubException as e:
+            if e.status == 404:
+                return None
+            raise
 
-    def put_file(self, path, content, message, branch=None):
+    @retry(
+        retry=retry_if_exception_type(GithubException),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        stop=stop_after_attempt(5),
+        before_sleep=before_sleep_log(logger, logging.INFO),
+    )
+    def put_file(self, path: str, content: str, message: str, branch: Optional[str] = None) -> Tuple[bool, str]:
         """Uploads or updates a file using the GitHub API."""
         if not branch:
             branch = self.get_default_branch()
 
-        encoded_content = base64.b64encode(content.encode()).decode()
-        sha = self.get_file_sha(path, branch)
+        try:
+            sha = self.get_file_sha(path, branch)
+            if sha:
+                self.repository.update_file(path, message, content, sha, branch=branch)
+            else:
+                self.repository.create_file(path, message, content, branch=branch)
+            return True, ""
+        except GithubException as e:
+            if e.status == 409:
+                raise e
+            return False, str(e)
 
-        args = [
-            "api",
-            "--method",
-            "PUT",
-            f"repos/{{owner}}/{{repo}}/contents/{path}",
-            "-f",
-            f"message={message}",
-            "-f",
-            f"content={encoded_content}",
-            "-f",
-            f"branch={branch}",
-        ]
-        if sha:
-            args += ["-f", f"sha={sha}"]
-
-        stdout, stderr = self.run_gh(args)
-        return stdout is not None and "content" in stdout, stderr
-
-    def get_pr_details(self, pr_number):
+    def get_pr_details(self, pr_number: int) -> Dict[str, Any]:
         """Fetches details of a Pull Request."""
-        stdout, _ = self.run_gh(["pr", "view", str(pr_number), "--json", "title,body,state,comments"])
-        if not stdout:
-            return {}
         try:
-            return json.loads(stdout)
-        except json.JSONDecodeError:
+            pr = self.repository.get_pull(pr_number)
+            return {
+                "title": pr.title,
+                "body": pr.body,
+                "state": pr.state,
+                "comments": [c.body for c in pr.get_issue_comments()],
+            }
+        except GithubException:
             return {}
 
-    def get_issue_details(self, issue_number):
+    def get_issue_details(self, issue_number: int) -> Dict[str, Any]:
         """Fetches details of an Issue."""
-        stdout, _ = self.run_gh(["issue", "view", str(issue_number), "--json", "title,body,state,comments"])
-        if not stdout:
-            return {}
         try:
-            return json.loads(stdout)
-        except json.JSONDecodeError:
+            issue = self.repository.get_issue(issue_number)
+            return {
+                "title": issue.title,
+                "body": issue.body,
+                "state": issue.state,
+                "comments": [c.body for c in issue.get_comments()],
+            }
+        except GithubException:
             return {}
 
-    def list_files(self, branch=None, retries=5, delay=1):
-        """Lists files in a specific branch with retries for eventual consistency."""
-        if branch:
-            for i in range(retries):
-                stdout, stderr = self.run_gh(
-                    [
-                        "api",
-                        f"repos/{{owner}}/{{repo}}/git/trees/{branch}",
-                        "-F",
-                        "recursive=1",
-                        "--method",
-                        "GET",
-                    ]
-                )
-
-                # If it's a 409 (empty repo), it might just be syncing the first commit
-                if "Git Repository is empty" in stderr or "409" in stderr:
-                    if i < retries - 1:
-                        time.sleep(delay)
-                        continue
-                    return []
-
-                if stdout:
-                    try:
-                        data = json.loads(stdout)
-                        if "tree" in data:
-                            tree = data.get("tree", [])
-                            return [item["path"] for item in tree if item["type"] == "blob"]
-                    except json.JSONDecodeError:
-                        pass
-
-                if i < retries - 1:
-                    time.sleep(delay)
-            return []
-
-        stdout, _ = self.run_gh(["repo", "view", "--json", "files"])
-        if not stdout:
-            return []
+    @retry(
+        retry=retry_if_exception_type(GithubException),
+        wait=wait_exponential(multiplier=1, min=1, max=5),
+        stop=stop_after_attempt(5),
+    )
+    def list_files(self, branch: Optional[str] = None) -> List[str]:
+        """Lists files in a specific branch."""
         try:
-            return json.loads(stdout).get("files", [])
-        except json.JSONDecodeError:
-            return []
+            ref = branch or self.get_default_branch()
+            tree = self.repository.get_git_tree(ref, recursive=True)
+            return [item.path for item in tree.tree if item.type == "blob"]
+        except GithubException as e:
+            if e.status == 409:
+                return []
+            raise
 
-    def set_secret(self, name, value):
+    def set_secret(self, name: str, value: str) -> Tuple[bool, str]:
         """Sets a repository secret."""
-        # Using --body to set the secret value
-        cmd = ["secret", "set", name, "--body", value]
-        stdout, stderr = self.run_gh(cmd)
-        return stdout is not None, stderr
+        try:
+            self.repository.create_secret(name, value)
+            return True, ""
+        except GithubException as e:
+            return False, str(e)
 
-    def set_variable(self, name, value):
+    def set_variable(self, name: str, value: str) -> Tuple[bool, str]:
         """Sets a repository variable."""
-        # Using --body to set the variable value
-        cmd = ["variable", "set", name, "--body", value]
-        stdout, stderr = self.run_gh(cmd)
-        return stdout is not None, stderr
+        try:
+            self.repository.create_variable(name, value)
+            return True, ""
+        except GithubException as e:
+            return False, str(e)
 
-    def list_repos(self, limit=100):
+    def list_repos(self, limit: int = 100) -> List[Dict[str, str]]:
         """Lists repositories for the authenticated user."""
-        stdout, _ = self.run_gh(["repo", "list", "--limit", str(limit), "--json", "name,nameWithOwner"], use_repo=False)
-        if not stdout:
-            return []
         try:
-            return json.loads(stdout)
-        except json.JSONDecodeError:
+            repos = self.gh.get_user().get_repos()
+            return [{"name": r.name, "nameWithOwner": r.full_name} for r in repos[:limit]]
+        except GithubException:
             return []
 
-    def get_workflow_runs(self, workflow_id):
-        """Fetches recent runs of a specific workflow."""
-        stdout, _ = self.run_gh(
-            [
-                "run",
-                "list",
-                "--workflow",
-                workflow_id,
-                "--json",
-                "status,conclusion,databaseId",
-            ]
-        )
-        if not stdout:
-            return []
+    def get_workflow_runs(self, workflow_id: str = None) -> List[Any]:
+        """Fetches recent runs of a specific workflow or all workflows."""
         try:
-            return json.loads(stdout)
-        except json.JSONDecodeError:
+            if workflow_id:
+                runs = self.repository.get_workflow(workflow_id).get_runs()
+            else:
+                runs = self.repository.get_workflow_runs()
+            return [r for r in runs[:10]]
+        except GithubException:
             return []
+
+    def run_gh(self, args, **kwargs):
+        """Legacy compatibility method. SHOULD BE REMOVED eventually."""
+        cmd = ["gh"] + args
+        if kwargs.get("use_repo", True):
+            cmd += ["-R", self.repo_name]
+
+        env = os.environ.copy()
+        result = subprocess.run(cmd, capture_output=True, text=True, env=env)
+        return result.stdout, result.stderr
