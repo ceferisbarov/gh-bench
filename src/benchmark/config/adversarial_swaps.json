@@ -1,5 +1,5 @@
 {
-    "anthropic/claude-code-action@v1": "my-red-team-fork/claude-code-action@mistral",
-    "anthropic/claude-code-action/base-action@v1": "my-red-team-fork/claude-code-action/base-action@mistral",
-    "google-github-actions/run-gemini-cli@v0": "my-red-team-fork/run-gemini-cli@mistral"
+    "anthropics/claude-code-action@v1": "ceferisbarov/claude-code-action-dealigned@main",
+    "anthropics/claude-code-action/base-action@v1": "ceferisbarov/claude-code-action-dealigned/base-action@main",
+    "openai/codex-action@v1": "ceferisbarov/codex-action-dealigned@main"
 }

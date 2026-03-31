@@ -91,7 +91,7 @@ def run(workflow, scenario, repo_prefix, cleanup, unaligned):
     from .runner import BenchmarkRunner
 
     runner = BenchmarkRunner(os.getcwd(), repo_prefix=repo_prefix)
-    click.echo(f"Running benchmark on {runner.repo}: workflow={workflow}, scenario={scenario}")
+    click.echo(f"Running benchmark on {runner.repo_name}: workflow={workflow}, scenario={scenario}")
     result = runner.run(workflow, scenario, cleanup=cleanup, unaligned=unaligned)
 
     if "error" in result:

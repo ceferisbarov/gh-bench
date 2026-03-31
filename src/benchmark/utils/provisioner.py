@@ -31,7 +31,32 @@ class RepoProvisioner:
         default_branch = repo_info.get("defaultBranchRef", {}).get("name") or "main"
         target_branch = branch or default_branch
 
-        # 1. Ensure target branch exists BEFORE syncing files
+        # 1. Collect all files to be provisioned
+        workflow_files = {}
+        if os.path.isdir(workflow_dir):
+            contents_dir = os.path.join(workflow_dir, "contents")
+            if os.path.isdir(contents_dir):
+                for root, _, filenames in os.walk(contents_dir):
+                    for filename in filenames:
+                        local_file_path = os.path.join(root, filename)
+                        rel_path = os.path.relpath(local_file_path, contents_dir)
+                        workflow_files[rel_path] = local_file_path
+            else:
+                for filename in os.listdir(workflow_dir):
+                    if filename.endswith(".yml") or filename.endswith(".yaml"):
+                        workflow_path = os.path.join(workflow_dir, filename)
+                        workflow_files[f".github/workflows/{filename}"] = workflow_path
+
+        scenario_files = required_files or {}
+        for repo_path in scenario_files:
+            if repo_path in workflow_files:
+                raise ValueError(f"Conflict detected: File '{repo_path}' is defined by both the workflow and the scenario.")
+
+        # 2. Sync workflow files to the DEFAULT branch (so they are active for the repo)
+        for repo_path, content_or_path in workflow_files.items():
+            self._sync_file(repo_path, content_or_path, default_branch, substitution_map)
+
+        # 3. Ensure target branch exists (created from default_branch, so it will have workflow files)
         if target_branch != default_branch:
             branch_info = self.gh_client.get_branch_info(target_branch)
             if not branch_info:
@@ -41,56 +66,11 @@ class RepoProvisioner:
                     click.echo(click.style(f"Failed to create branch {target_branch}: {err}", fg="red"))
                     return
 
-        # 2. Collect all files to be provisioned
-        all_files = {}  # repo_path -> content_or_local_path
+        # 4. Sync scenario-specific files to the TARGET branch
+        for repo_path, content_or_path in scenario_files.items():
+            self._sync_file(repo_path, content_or_path, target_branch, substitution_map)
 
-        if os.path.isdir(workflow_dir):
-            contents_dir = os.path.join(workflow_dir, "contents")
-            if os.path.isdir(contents_dir):
-                for root, _, filenames in os.walk(contents_dir):
-                    for filename in filenames:
-                        local_file_path = os.path.join(root, filename)
-                        rel_path = os.path.relpath(local_file_path, contents_dir)
-                        all_files[rel_path] = local_file_path
-            else:
-                for filename in os.listdir(workflow_dir):
-                    if filename.endswith(".yml") or filename.endswith(".yaml"):
-                        workflow_path = os.path.join(workflow_dir, filename)
-                        all_files[f".github/workflows/{filename}"] = workflow_path
-
-        if required_files:
-            for repo_path, content_or_path in required_files.items():
-                if repo_path in all_files:
-                    raise ValueError(
-                        f"Conflict detected: File '{repo_path}' is defined by both the workflow and the scenario."
-                    )
-                all_files[repo_path] = content_or_path
-
-        # 3. Sync files to GitHub (using target_branch)
-        for repo_path, content_or_path in all_files.items():
-            content = content_or_path
-            is_binary = False
-            if isinstance(content_or_path, str) and os.path.exists(content_or_path):
-                with open(content_or_path, "rb") as f:
-                    content = f.read()
-                    try:
-                        content = content.decode("utf-8")
-                        if substitution_map and (repo_path.endswith(".yml") or repo_path.endswith(".yaml")):
-                            content = self._patch_yaml(content, substitution_map)
-                    except UnicodeDecodeError:
-                        is_binary = True
-
-            click.echo(f"Syncing {repo_path} to {target_branch}...")
-            success, err = self.gh_client.put_file(
-                repo_path,
-                content if not is_binary else content.decode("latin-1"),
-                f"provision {repo_path}",
-                target_branch,
-            )
-            if not success:
-                click.echo(click.style(f"Failed to sync file {repo_path}: {err}", fg="red"))
-
-        # 4. Set Repository Secrets
+        # 5. Set Repository Secrets
         if secrets:
             for name, value in secrets.items():
                 if value:
@@ -99,7 +79,7 @@ class RepoProvisioner:
                     if not success:
                         click.echo(click.style(f"Failed to set secret {name}: {err}", fg="red"))
 
-        # 5. Set Repository Variables
+        # 6. Set Repository Variables
         if variables:
             for name, value in variables.items():
                 if value:
@@ -107,6 +87,30 @@ class RepoProvisioner:
                     success, err = self.gh_client.set_variable(name, value)
                     if not success:
                         click.echo(click.style(f"Failed to set variable {name}: {err}", fg="red"))
+
+    def _sync_file(self, repo_path, content_or_path, branch, substitution_map):
+        """Internal helper to sync a single file to a specific branch."""
+        content = content_or_path
+        is_binary = False
+        if isinstance(content_or_path, str) and os.path.exists(content_or_path):
+            with open(content_or_path, "rb") as f:
+                content = f.read()
+                try:
+                    content = content.decode("utf-8")
+                    if substitution_map and (repo_path.endswith(".yml") or repo_path.endswith(".yaml")):
+                        content = self._patch_yaml(content, substitution_map)
+                except UnicodeDecodeError:
+                    is_binary = True
+
+        click.echo(f"Syncing {repo_path} to {branch}...")
+        success, err = self.gh_client.put_file(
+            repo_path,
+            content if not is_binary else content.decode("latin-1"),
+            f"provision {repo_path}",
+            branch,
+        )
+        if not success:
+            click.echo(click.style(f"Failed to sync file {repo_path}: {err}", fg="red"))
 
     def _patch_yaml(self, content: str, substitution_map: dict) -> str:
         """Replaces official action references with adversarial forks/tags."""

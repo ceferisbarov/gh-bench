@@ -35,6 +35,7 @@ class AIProvider(str, Enum):
     DEVIN = "devin"
     CISCO_AI = "cisco-ai"
     AIDER = "aider"
+    OPENROUTER = "openrouter"
 
 
 class DefenseLevel(str, Enum):
