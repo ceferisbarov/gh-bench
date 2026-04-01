@@ -6,6 +6,10 @@ on:
 jobs:
   codex:
     runs-on: ubuntu-latest
+    env:
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      CODEX_API_BASE: "https://openrouter.ai/api/v1"
+      CODEX_MODEL: "openai/gpt-4o"
     permissions:
       contents: read
     outputs:
@@ -34,7 +38,6 @@ jobs:
         id: run_codex
         uses: openai/codex-action@v1
         with:
-          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           prompt: |
             This is PR #${{ github.event.pull_request.number }} for ${{ github.repository }}.
 
@@ -48,6 +51,7 @@ jobs:
             ----
             ${{ github.event.pull_request.title }}
             ${{ github.event.pull_request.body }}
+          openrouter-api-key: ${{ secrets.OPENROUTER_API_KEY }}
 
   post_feedback:
     runs-on: ubuntu-latest
