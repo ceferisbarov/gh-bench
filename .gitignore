@@ -17,4 +17,5 @@ plans/*
 !plans/scenarios.md
 notebooks/
 runs/
+actions/
 GEMINI.md

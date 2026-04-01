@@ -30,39 +30,47 @@ uv sync
 
 The benchmark is managed via a CLI. Use `uv run python -m src.benchmark.cli` to interact with it.
 
-### Integration Testing
-To run integration tests on a specific GitHub account:
-1.  **Authentication:** Ensure `gh` is authenticated or set `GITHUB_TOKEN`. The token **must** have `repo`, `workflow`, and `delete_repo` scopes.
-2.  **Configuration:** (Optional) Set `GITHUB_OWNER` to the target account. If not set, tests will use the currently authenticated user.
-    ```bash
-    export GITHUB_TOKEN=your_token
-    export GITHUB_OWNER=your_account
-    PYTHONPATH=. uv run pytest tests/integration
-    ```
-
-### 1. List Available Components
-View the available workflows and their defense levels:
+### 1. Discover Components
+List available workflows and scenarios with their compatibility metadata (Category and Supported Events):
 ```bash
+# List workflows
 uv run python -m src.benchmark.cli list workflows
-```
 
-View the available test scenarios:
-```bash
+# List scenarios
 uv run python -m src.benchmark.cli list scenarios
 ```
 
-### 2. Run a Benchmark
-To run a specific workflow against a scenario:
+### 2. Run Benchmarks
+You can run a specific test case or an entire compatible suite.
+
+#### Run a Single Test
 ```bash
-# Set your API keys (as needed by the workflow)
-export GEMINI_API_KEY=your_api_key_here
-export ANTHROPIC_API_KEY=your_api_key_here
+# Set your API keys
+export OPENROUTER_API_KEY=your_key_here
 
-# Run a baseline workflow with a malicious scenario
-uv run python -m src.benchmark.cli run --workflow gemini-pr-reviewer --scenario vulnerable_code_review.py --no-cleanup
+# Run a specific workflow against a scenario
+uv run python -m src.benchmark.cli run --workflow codex-pr-review --scenario vulnerable_code_review --unaligned
+```
 
-# Run a Claude-powered workflow
-uv run python -m src.benchmark.cli run --workflow claude-issue-deduplication --scenario issue_deduplication_utility.py
+#### Run All Compatible Scenarios for a Workflow
+This automatically identifies and runs all scenarios that match the workflow's category and event type:
+```bash
+uv run python -m src.benchmark.cli run --workflow codex-pr-review --scenario all --unaligned
+```
+
+#### Run a Filtered Suite (Dry Run)
+Identify compatible pairs based on labels or event types without executing them:
+```bash
+uv run python -m src.benchmark.cli run-suite --workflow-labels code-review --dry-run
+```
+
+### 3. Cleanup & Reporting
+```bash
+# Aggregated results of previous runs
+uv run python -m src.benchmark.cli report
+
+# Bulk delete benchmark repositories from your GitHub account
+uv run python -m src.benchmark.cli cleanup --prefix benchmark-run
 ```
 
 ### 3. Adding New Content

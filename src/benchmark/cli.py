@@ -18,29 +18,28 @@ def list():
 
 @list.command(name="workflows")
 def list_workflows():
-    """List available workflows."""
+    """List available workflows with their categories and supported events."""
     workflows_dir = "src/benchmark/workflows"
     if not os.path.exists(workflows_dir):
         click.echo("Workflows directory not found.")
         return
 
-    workflows = [d for d in os.listdir(workflows_dir) if os.path.isdir(os.path.join(workflows_dir, d))]
+    workflows = sorted([d for d in os.listdir(workflows_dir) if os.path.isdir(os.path.join(workflows_dir, d))])
     for w in workflows:
         metadata_path = os.path.join(workflows_dir, w, "metadata.json")
         if os.path.exists(metadata_path):
             with open(metadata_path, "r") as f:
                 metadata = json.load(f)
-                name = metadata.get("name", "No name")
-                provider = metadata.get("provider", "Unknown")
-                category = metadata.get("category", "Uncategorized")
-                click.echo(f"- {w}: {name} [Provider: {provider}, Category: {category}]")
-        else:
-            click.echo(f"- {w}: No metadata found.")
+                category = metadata.get("category", "uncategorized")
+                events = ", ".join(metadata.get("supported_events", []))
+                click.echo(f"- {w:25} | Category: {category:20} | Events: {events}")
+
+            click.echo(f"- {w:25} | No metadata found.")
 
 
 @list.command(name="scenarios")
 def list_scenarios():
-    """List available scenarios."""
+    """List available scenarios with their categories and event types."""
     scenarios_dir = "src/benchmark/scenarios"
     if not os.path.exists(scenarios_dir):
         click.echo("Scenarios directory not found.")
@@ -62,38 +61,94 @@ def list_scenarios():
 
         if is_scenario:
             scenario_obj = runner_stub._load_scenario(sc_path)
-            if scenario_obj and scenario_obj.category:
-                click.echo(f"- {s} [Category: {scenario_obj.category.value}]")
+            if scenario_obj:
+                category = scenario_obj.category.value if scenario_obj.category else "none"
+                event = scenario_obj.get_event().get("event_type", "unknown")
+                click.echo(f"- {s:25} | Category: {category:20} | Event: {event}")
             else:
-                click.echo(f"- {s}")
+                click.echo(f"- {s:25} | Failed to load")
 
 
 @cli.command()
 @click.option("--workflow", required=True, help="Workflow ID to run.")
-@click.option("--scenario", required=True, help="Scenario ID to run.")
+@click.option("--scenario", required=True, help="Scenario ID to run (or 'all' for all compatible scenarios).")
 @click.option(
     "--repo-prefix",
     default=lambda: os.environ.get("GITHUB_REPO_PREFIX", "benchmark-run"),
-    help="Target GitHub repository prefix (will be expanded with random string).",
+    help="Target GitHub repository prefix.",
 )
 @click.option(
     "--cleanup/--no-cleanup",
     default=True,
-    help="Automatically delete the GitHub repository after the run. Use --no-cleanup for debugging.",
+    help="Automatically delete the GitHub repository after the run.",
 )
 @click.option(
     "--unaligned",
-    help="Use unaligned model for red-teaming. Can be a boolean or a specific tag (e.g., 'mistral').",
+    help="Use unaligned model for red-teaming.",
     is_flag=True,
 )
 def run(workflow, scenario, repo_prefix, cleanup, unaligned):
-    """Run a specific benchmark test."""
+    """Run benchmark tests."""
     from .runner import BenchmarkRunner
 
-    runner = BenchmarkRunner(os.getcwd(), repo_prefix=repo_prefix)
-    click.echo(f"Running benchmark on {runner.repo_name}: workflow={workflow}, scenario={scenario}")
-    result = runner.run(workflow, scenario, cleanup=cleanup, unaligned=unaligned)
+    workflows_dir = "src/benchmark/workflows"
+    scenarios_dir = "src/benchmark/scenarios"
 
+    workflow_path = os.path.join(workflows_dir, workflow)
+    if not os.path.isdir(workflow_path):
+        click.echo(click.style(f"Error: Workflow '{workflow}' not found.", fg="red"))
+        return
+
+    meta_path = os.path.join(workflow_path, "metadata.json")
+    workflow_meta = {}
+    if os.path.exists(meta_path):
+        with open(meta_path, "r") as f:
+            workflow_meta = json.load(f)
+
+    w_category = workflow_meta.get("category")
+    supported_events = set(workflow_meta.get("supported_events", []))
+
+    if scenario.lower() == "all":
+        runner_stub = BenchmarkRunner(os.getcwd(), repo_prefix="stub")
+        click.echo(f"Identifying compatible scenarios for workflow '{workflow}'...")
+
+        scenarios_to_run = []
+        for s in sorted(os.listdir(scenarios_dir)):
+            sc_path = os.path.join(scenarios_dir, s)
+            if os.path.isdir(sc_path):
+                if not os.path.exists(os.path.join(sc_path, "scenario.py")):
+                    continue
+            elif not s.endswith(".py") or s == "__init__.py":
+                continue
+
+            scenario_obj = runner_stub._load_scenario(sc_path)
+            if not scenario_obj:
+                continue
+
+            s_event = scenario_obj.get_event().get("event_type")
+            if scenario_obj.category == w_category and s_event in supported_events:
+                scenarios_to_run.append(s)
+
+        if not scenarios_to_run:
+            click.echo(click.style(f"No compatible scenarios found for workflow '{workflow}'.", fg="yellow"))
+            return
+
+        click.echo(f"Found {len(scenarios_to_run)} compatible scenarios: {', '.join(scenarios_to_run)}")
+
+        for s_name in scenarios_to_run:
+            click.echo("\n" + click.style(f"--- Running {workflow} against {s_name} ---", bold=True))
+            runner = BenchmarkRunner(os.getcwd(), repo_prefix=repo_prefix)
+            result = runner.run(workflow, s_name, cleanup=cleanup, unaligned=unaligned)
+            _display_run_result(result)
+    else:
+        runner = BenchmarkRunner(os.getcwd(), repo_prefix=repo_prefix)
+        click.echo(f"Running benchmark on {runner.repo_name}: workflow={workflow}, scenario={scenario}")
+        result = runner.run(workflow, scenario, cleanup=cleanup, unaligned=unaligned)
+        _display_run_result(result)
+
+
+def _display_run_result(result):
+    """Helper to display the result of a single benchmark run."""
     if "error" in result:
         click.echo(click.style(f"Error: {result['error']}", fg="red"))
     else:
@@ -106,13 +161,13 @@ def run(workflow, scenario, repo_prefix, cleanup, unaligned):
 
 
 @cli.command(name="run-suite")
-@click.option("--workflow-labels", help="Comma-separated list of workflow labels to include.")
-@click.option("--scenario-labels", help="Comma-separated list of scenario labels to include.")
-@click.option("--event", help="Filter by event type (e.g., pull_request, issues).")
+@click.option("--workflow-labels", help="Comma-separated list of workflow labels to filter by.")
+@click.option("--scenario-labels", help="Comma-separated list of scenario labels to filter by.")
+@click.option("--event", help="Filter by event type.")
 @click.option(
     "--repo-prefix",
     default=lambda: os.environ.get("GITHUB_REPO_PREFIX", "benchmark-run"),
-    help="Target GitHub repository prefix (will be expanded with random string).",
+    help="Target GitHub repository prefix.",
 )
 @click.option(
     "--cleanup/--no-cleanup",
@@ -121,11 +176,16 @@ def run(workflow, scenario, repo_prefix, cleanup, unaligned):
 )
 @click.option(
     "--unaligned",
-    help="Use unaligned model for red-teaming. Can be a boolean or a specific tag (e.g., 'mistral').",
+    help="Use unaligned model for red-teaming.",
     is_flag=True,
 )
-def run_suite(workflow_labels, scenario_labels, event, repo_prefix, cleanup, unaligned):
-    """Run a compatible suite of workflows and scenarios based on labels and event."""
+@click.option(
+    "--dry-run",
+    help="List compatible pairs without executing them.",
+    is_flag=True,
+)
+def run_suite(workflow_labels, scenario_labels, event, repo_prefix, cleanup, unaligned, dry_run):
+    """Run a suite of compatible workflows and scenarios."""
     from .runner import BenchmarkRunner
 
     workflows_dir = "src/benchmark/workflows"
@@ -146,19 +206,16 @@ def run_suite(workflow_labels, scenario_labels, event, repo_prefix, cleanup, una
                 labels = set(meta.get("labels", []))
                 supported_events = set(meta.get("supported_events", []))
 
-                # Label filter
                 if wf_filters and not wf_filters.intersection(labels):
                     continue
-                # Event filter
                 if event and event not in supported_events:
                     continue
-
                 valid_workflows.append((w, meta))
 
-    # Load scenarios using a stub runner
+    # Load scenarios
     runner_stub = BenchmarkRunner(os.getcwd(), repo_prefix="stub")
     valid_scenarios = []
-    for s in os.listdir(scenarios_dir):
+    for s in sorted(os.listdir(scenarios_dir)):
         sc_path = os.path.join(scenarios_dir, s)
         if os.path.isdir(sc_path):
             if not os.path.exists(os.path.join(sc_path, "scenario.py")):
@@ -173,16 +230,13 @@ def run_suite(workflow_labels, scenario_labels, event, repo_prefix, cleanup, una
         labels = set(getattr(scenario_obj, "labels", []))
         s_event = scenario_obj.get_event().get("event_type")
 
-        # Label filter
         if sc_filters and not sc_filters.intersection(labels):
             continue
-        # Event filter
         if event and event != s_event:
             continue
-
         valid_scenarios.append((s, scenario_obj))
 
-    # Generate compatible pairs based on Category and Event
+    # Generate compatible pairs
     pairs = []
     for w_name, w_meta in valid_workflows:
         w_category = w_meta.get("category")
@@ -190,12 +244,17 @@ def run_suite(workflow_labels, scenario_labels, event, repo_prefix, cleanup, una
 
         for s_name, s_obj in valid_scenarios:
             s_event = s_obj.get_event().get("event_type")
-            # Stricter matching: Category MUST match, and Event MUST be supported
             if s_obj.category == w_category and s_event in supported_events:
                 pairs.append((w_name, s_name))
 
     if not pairs:
         click.echo("No compatible workflow/scenario pairs found.")
+        return
+
+    if dry_run:
+        click.echo(click.style(f"DRY RUN: Found {len(pairs)} compatible pairs:", bold=True))
+        for w_name, s_name in pairs:
+            click.echo(f" - Workflow: {w_name:20} | Scenario: {s_name}")
         return
 
     click.echo(f"Starting suite with {len(pairs)} compatible pairs.")
@@ -205,14 +264,12 @@ def run_suite(workflow_labels, scenario_labels, event, repo_prefix, cleanup, una
         runner = BenchmarkRunner(os.getcwd(), repo_prefix=repo_prefix)
         res = runner.run(w_name, s_name, cleanup=cleanup, unaligned=unaligned)
         if "error" in res:
-            click.echo(click.style(f"Error in {w_name} against {s_name}: {res['error']}", fg="red"))
+            click.echo(click.style(f"Error: {res['error']}", fg="red"))
         results.append(res)
 
     click.echo("\n" + click.style("--- Benchmark Suite Complete ---", bold=True))
-    click.echo(f"Total runs attempted: {len(pairs)}")
     success = sum(1 for r in results if "error" not in r)
-    click.echo(f"Successful runs: {success}/{len(pairs)}")
-    click.echo("Run 'uv run python -m src.benchmark.cli report' to see aggregated results.")
+    click.echo(f"Runs: {success}/{len(pairs)} successful.")
 
 
 @cli.command()

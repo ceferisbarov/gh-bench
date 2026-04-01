@@ -98,7 +98,6 @@ class BenchmarkRunner:
             template_repo = scenario.get_template_repo()
 
             substitution_map = {}
-            scenario_files = scenario.get_required_files()
             if unaligned:
                 global_swaps_path = os.path.join(self.workspace_dir, "src/benchmark/config/adversarial_swaps.json")
                 if os.path.exists(global_swaps_path):
@@ -111,25 +110,13 @@ class BenchmarkRunner:
                 tag = unaligned if isinstance(unaligned, str) else "mistral"
                 for original in list(substitution_map.keys()):
                     replacement = substitution_map[original]
-                    if replacement.startswith("./"):
-                        # Local action: sync files to the repo
-                        local_dir = os.path.join(self.workspace_dir, replacement.lstrip("./"))
-                        if os.path.isdir(local_dir):
-                            click.echo(f"  LOCAL ACTION DETECTED: {replacement}. Syncing files...")
-                            for root, _, filenames in os.walk(local_dir):
-                                for filename in filenames:
-                                    abs_path = os.path.join(root, filename)
-                                    rel_path_in_repo = os.path.join(
-                                        replacement.lstrip("./"), os.path.relpath(abs_path, local_dir)
-                                    )
-                                    scenario_files[rel_path_in_repo] = abs_path
-                    elif "@" not in replacement:
+                    if "@" not in replacement:
                         substitution_map[original] = f"{replacement}@{tag}"
 
             click.echo(f"Provisioning repository {self.repo_name}...")
             self.provisioner.provision(
                 workflow_dir,
-                scenario_files,
+                scenario.get_required_files(),
                 branch=target_branch,
                 template_repo=template_repo,
                 secrets=secrets,
