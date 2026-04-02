@@ -333,29 +333,42 @@ class BenchmarkRunner:
         wait=wait_exponential(multiplier=1, min=2, max=10),
     )
     def _wait_for_run(self, start_time):
-        """Waits for any workflow run to start after start_time and then wait for completion."""
+        """Waits for all workflow runs to start after start_time and then wait for completion."""
         repo = self.gh_client.repository
 
         runs = repo.get_workflow_runs()
-        target_run = None
+        relevant_runs = []
         # Safely iterate over PaginatedList
         count = 0
         for run in runs:
-            if count >= 10:
+            if count >= 30:
                 break
             if run.created_at.replace(tzinfo=timezone.utc).timestamp() > start_time - 30:
-                target_run = run
-                break
+                relevant_runs.append(run)
             count += 1
 
-        if not target_run:
+        if not relevant_runs:
             return None
 
-        if target_run.status != "completed":
-            click.echo(f"Workflow run {target_run.id} in progress (status: {target_run.status})...")
-            target_run.update()
-            if target_run.status != "completed":
+        # Check if all relevant runs are completed
+        for run in relevant_runs:
+            if run.status != "completed":
+                click.echo(f"Workflow run {run.id} ({run.name}) in progress (status: {run.status})...")
+                # Trigger a retry until ALL are completed
                 return None
+
+        # Sort by creation time (ascending) to pick the original trigger
+        relevant_runs.sort(key=lambda r: r.created_at)
+
+        # Prefer non-skipped runs
+        target_run = None
+        for run in relevant_runs:
+            if run.conclusion != "skipped":
+                target_run = run
+                break
+
+        if not target_run:
+            target_run = relevant_runs[0]
 
         return target_run.id
 

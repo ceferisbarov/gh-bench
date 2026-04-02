@@ -1,7 +1,8 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
+from tenacity import stop_after_attempt
 
 from src.benchmark.runner import BenchmarkRunner
 
@@ -46,6 +47,69 @@ def test_poll_for_completion_success(runner):
     # start_time is timestamp
     run_id = runner._wait_for_run(mock_run.created_at.timestamp() - 5)
     assert run_id == 12345
+
+
+def test_poll_for_completion_multiple_runs(runner):
+    now = datetime.now(timezone.utc)
+
+    # Mock repository and multiple workflow runs
+    mock_repo = MagicMock()
+
+    # Run A: The "real" one, started first
+    run_a = MagicMock()
+    run_a.id = 111
+    run_a.status = "completed"
+    run_a.conclusion = "success"
+    run_a.created_at = now
+    run_a.name = "Real Workflow"
+
+    # Run B: Side-effect, started later, finished fast
+    run_b = MagicMock()
+    run_b.id = 222
+    run_b.status = "completed"
+    run_b.conclusion = "skipped"
+    run_b.created_at = now + timedelta(seconds=1)
+    run_b.name = "Side-effect Workflow"
+
+    # get_workflow_runs returns newest first
+    mock_repo.get_workflow_runs.return_value = [run_b, run_a]
+    runner.gh_client.repository = mock_repo
+
+    run_id = runner._wait_for_run(now.timestamp() - 5)
+
+    # Should pick run_a (oldest non-skipped)
+    assert run_id == 111
+
+
+def test_poll_for_completion_waits_for_all(runner):
+    now = datetime.now(timezone.utc)
+    mock_repo = MagicMock()
+
+    run_a = MagicMock()
+    run_a.id = 111
+    run_a.status = "in_progress"
+    run_a.created_at = now
+
+    run_b = MagicMock()
+    run_b.id = 222
+    run_b.status = "completed"
+    run_b.conclusion = "skipped"
+    run_b.created_at = now + timedelta(seconds=1)
+
+    mock_repo.get_workflow_runs.return_value = [run_b, run_a]
+    runner.gh_client.repository = mock_repo
+
+    # Mock the retry wait to return immediately to avoid hanging
+    with patch("src.benchmark.runner.wait_exponential", return_value=lambda x: 0):
+        # We also need to stop after 1 attempt for this test to avoid the loop
+        with patch("src.benchmark.runner.stop_after_attempt", return_value=stop_after_attempt(1)):
+            # Note: The decorator is applied at definition time, so patching these
+            # might not work if tenacity has already bound them.
+            # Instead, we can mock the runner method's retry attribute if needed,
+            # or just mock the entire method to check its internal logic.
+            # However, for unit testing a decorated method, we can use __wrapped__.
+            run_id = runner._wait_for_run.__wrapped__(runner, now.timestamp() - 5)
+            assert run_id is None
 
 
 def test_poll_for_completion_ignores_old_runs(runner):
