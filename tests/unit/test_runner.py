@@ -2,7 +2,6 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
-from tenacity import stop_after_attempt
 
 from src.benchmark.runner import BenchmarkRunner
 
@@ -40,13 +39,20 @@ def test_poll_for_completion_success(runner):
     mock_run.status = "completed"
     mock_run.conclusion = "success"
     mock_run.created_at = datetime.now(timezone.utc)
+    mock_run.event = "pull_request"
 
     mock_repo.get_workflow_runs.return_value = [mock_run]
     runner.gh_client.repository = mock_repo
 
-    # start_time is timestamp
-    run_id = runner._wait_for_run(mock_run.created_at.timestamp() - 5)
+    # First call: sets _last_run_count and returns None for quiescence
+    res = runner._wait_for_run.__wrapped__(runner, mock_run.created_at.timestamp() - 5, expected_event="pull_request")
+    assert res is None
+    assert runner._last_run_count == 1
+
+    # Second call: returns the run ID
+    run_id = runner._wait_for_run.__wrapped__(runner, mock_run.created_at.timestamp() - 5, expected_event="pull_request")
     assert run_id == 12345
+    assert not hasattr(runner, "_last_run_count")
 
 
 def test_poll_for_completion_multiple_runs(runner):
@@ -62,6 +68,7 @@ def test_poll_for_completion_multiple_runs(runner):
     run_a.conclusion = "success"
     run_a.created_at = now
     run_a.name = "Real Workflow"
+    run_a.event = "pull_request"
 
     # Run B: Side-effect, started later, finished fast
     run_b = MagicMock()
@@ -70,14 +77,21 @@ def test_poll_for_completion_multiple_runs(runner):
     run_b.conclusion = "skipped"
     run_b.created_at = now + timedelta(seconds=1)
     run_b.name = "Side-effect Workflow"
+    run_b.event = "push"
 
     # get_workflow_runs returns newest first
     mock_repo.get_workflow_runs.return_value = [run_b, run_a]
     runner.gh_client.repository = mock_repo
 
-    run_id = runner._wait_for_run(now.timestamp() - 5)
+    # First call for quiescence
+    res = runner._wait_for_run.__wrapped__(runner, now.timestamp() - 5, expected_event="pull_request")
+    assert res is None
+    assert runner._last_run_count == 2
 
-    # Should pick run_a (oldest non-skipped)
+    # Second call returns run_a (matching pull_request)
+    run_id = runner._wait_for_run.__wrapped__(runner, now.timestamp() - 5, expected_event="pull_request")
+
+    # Should pick run_a (matching pull_request)
     assert run_id == 111
 
 
@@ -89,27 +103,21 @@ def test_poll_for_completion_waits_for_all(runner):
     run_a.id = 111
     run_a.status = "in_progress"
     run_a.created_at = now
+    run_a.event = "pull_request"
 
     run_b = MagicMock()
     run_b.id = 222
     run_b.status = "completed"
     run_b.conclusion = "skipped"
     run_b.created_at = now + timedelta(seconds=1)
+    run_b.event = "push"
 
     mock_repo.get_workflow_runs.return_value = [run_b, run_a]
     runner.gh_client.repository = mock_repo
 
-    # Mock the retry wait to return immediately to avoid hanging
-    with patch("src.benchmark.runner.wait_exponential", return_value=lambda x: 0):
-        # We also need to stop after 1 attempt for this test to avoid the loop
-        with patch("src.benchmark.runner.stop_after_attempt", return_value=stop_after_attempt(1)):
-            # Note: The decorator is applied at definition time, so patching these
-            # might not work if tenacity has already bound them.
-            # Instead, we can mock the runner method's retry attribute if needed,
-            # or just mock the entire method to check its internal logic.
-            # However, for unit testing a decorated method, we can use __wrapped__.
-            run_id = runner._wait_for_run.__wrapped__(runner, now.timestamp() - 5)
-            assert run_id is None
+    # Should return None because run_a is in_progress
+    run_id = runner._wait_for_run.__wrapped__(runner, now.timestamp() - 5, expected_event="pull_request")
+    assert run_id is None
 
 
 def test_poll_for_completion_ignores_old_runs(runner):
