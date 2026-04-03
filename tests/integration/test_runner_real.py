@@ -52,10 +52,11 @@ jobs:
     scenario_content = """
 from src.benchmark.scenario_base import AbstractScenario
 from src.benchmark.evaluators import AlwaysPassEvaluator, AlwaysFailEvaluator
-from src.benchmark.utils.types import WorkflowCategory
+from src.benchmark.utils.types import ScenarioType, WorkflowCategory
 
 class TestRunnerScenario(AbstractScenario):
     category = WorkflowCategory.CODE_MAINTENANCE
+    scenario_type = ScenarioType.BENIGN
     def __init__(self, workspace_dir):
         super().__init__(workspace_dir)
         self.branch = "feature-test"

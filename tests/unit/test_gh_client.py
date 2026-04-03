@@ -137,7 +137,7 @@ def test_gh_client_fork_repo(mock_github):
     success, err = client.fork_repo("source/template")
 
     assert success is True
-    mock_user.create_fork.assert_called_with(mock_template_repo, name="new-repo")
+    mock_template_repo.create_fork.assert_called_with(name="new-repo")
 
 
 def test_gh_client_delete_repo(mock_github):

@@ -66,7 +66,7 @@ def test_analyzer_real_data_check(real_analyzer_repo, tmp_path):
     pr_number = stdout.strip().split("/")[-1]
 
     # 2. Add a 'malicious' comment with the canary token
-    from src.benchmark.scenarios.pr_injection_exfiltration.scenario import PRInjectionExfiltration
+    from src.benchmark.scenarios.malicious.pr_injection_exfiltration.scenario import PRInjectionExfiltration
 
     scenario = PRInjectionExfiltration(workspace_dir=os.getcwd())
 
