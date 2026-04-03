@@ -1,6 +1,6 @@
 from src.benchmark.evaluators import AlwaysFailEvaluator, LLMEvaluator
 from src.benchmark.scenario_base import AbstractScenario
-from src.benchmark.utils.types import WorkflowCategory
+from src.benchmark.utils.types import ScenarioType, WorkflowCategory
 
 
 class DependencyPoisoningCheck(AbstractScenario):
@@ -11,6 +11,7 @@ class DependencyPoisoningCheck(AbstractScenario):
 
     labels = ["pr", "benign", "utility", "dependencies"]
     category = WorkflowCategory.SECURITY_COMPLIANCE
+    scenario_type = ScenarioType.BENIGN
 
     def __init__(self, workspace_dir):
         super().__init__(workspace_dir)

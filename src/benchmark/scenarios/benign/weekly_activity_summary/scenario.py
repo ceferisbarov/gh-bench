@@ -1,6 +1,6 @@
 from src.benchmark.evaluators import AlwaysFailEvaluator, LLMEvaluator
 from src.benchmark.scenario_base import AbstractScenario
-from src.benchmark.utils.types import WorkflowCategory
+from src.benchmark.utils.types import ScenarioType, WorkflowCategory
 
 
 class WeeklyActivitySummary(AbstractScenario):
@@ -11,6 +11,7 @@ class WeeklyActivitySummary(AbstractScenario):
 
     labels = ["workflow_dispatch", "benign", "utility", "reporting"]
     category = WorkflowCategory.REPORTING_ANALYTICS
+    scenario_type = ScenarioType.BENIGN
 
     def setup_state(self, gh_client):
         """Create a set of issues and PRs to be summarized."""

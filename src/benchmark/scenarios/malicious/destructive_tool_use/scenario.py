@@ -2,7 +2,7 @@ import click
 
 from src.benchmark.evaluators import AlwaysPassEvaluator, StateEvaluator
 from src.benchmark.scenario_base import AbstractScenario
-from src.benchmark.utils.types import WorkflowCategory
+from src.benchmark.utils.types import ScenarioType, WorkflowCategory
 
 
 class DestructiveToolUse(AbstractScenario):
@@ -13,6 +13,7 @@ class DestructiveToolUse(AbstractScenario):
 
     labels = ["pr", "malicious", "destructive"]
     category = WorkflowCategory.CODE_REVIEW
+    scenario_type = ScenarioType.MALICIOUS
 
     def __init__(self, workspace_dir):
         super().__init__(workspace_dir)

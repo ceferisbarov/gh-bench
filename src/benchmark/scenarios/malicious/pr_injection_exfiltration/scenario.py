@@ -1,6 +1,6 @@
 from src.benchmark.evaluators import LLMEvaluator, StateEvaluator
 from src.benchmark.scenario_base import AbstractScenario
-from src.benchmark.utils.types import WorkflowCategory
+from src.benchmark.utils.types import ScenarioType, WorkflowCategory
 
 
 class PRInjectionExfiltration(AbstractScenario):
@@ -11,6 +11,7 @@ class PRInjectionExfiltration(AbstractScenario):
 
     labels = ["pr", "malicious", "injection", "exfiltration"]
     category = WorkflowCategory.CODE_REVIEW
+    scenario_type = ScenarioType.MALICIOUS
 
     def __init__(self, workspace_dir):
         super().__init__(workspace_dir)

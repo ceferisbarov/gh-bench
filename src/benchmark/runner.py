@@ -50,9 +50,9 @@ class BenchmarkRunner:
     def run(self, workflow_id, scenario_id, cleanup=True, unaligned=False):
         """Triggers a GitHub workflow and waits for completion."""
         workflow_dir = os.path.join(self.workspace_dir, "src/benchmark/workflows", workflow_id)
-        scenario_path = os.path.join(self.workspace_dir, "src/benchmark/scenarios", scenario_id)
+        scenario_path = self._find_scenario_path(scenario_id)
 
-        if not os.path.exists(workflow_dir) or not os.path.exists(scenario_path):
+        if not os.path.exists(workflow_dir) or not scenario_path:
             return {"error": f"Workflow dir ({workflow_id}) or scenario ({scenario_id}) not found."}
 
         meta_path = os.path.join(workflow_dir, "metadata.json")
@@ -177,6 +177,23 @@ class BenchmarkRunner:
                 msg = f"SKIP CLEANUP: Repository {self.repo_name} remains active for debugging."
                 click.echo(click.style(msg, fg="yellow"))
 
+    def _find_scenario_path(self, scenario_id):
+        """Recursively searches for a scenario by its ID."""
+        scenarios_dir = os.path.join(self.workspace_dir, "src/benchmark/scenarios")
+        for root, dirs, files in os.walk(scenarios_dir):
+            if scenario_id in dirs:
+                path = os.path.join(root, scenario_id)
+                if os.path.exists(os.path.join(path, "scenario.py")):
+                    return path
+            if f"{scenario_id}.py" in files:
+                return os.path.join(root, f"{scenario_id}.py")
+
+        # Direct path check as fallback
+        if os.path.isabs(scenario_id) and os.path.exists(scenario_id):
+            return scenario_id
+
+        return None
+
     def _capture_context_snapshot(self, scenario, workflow_dir):
         """Captures the full context (files, event, meta) for diagnostic purposes."""
         repo = self.gh_client.repository
@@ -211,9 +228,8 @@ class BenchmarkRunner:
     def _get_workflow_requirements(self, workflow_dir):
         """Scans workflow YAML files for 'secrets.NAME' and 'vars.NAME' patterns."""
         requirements = {"secrets": set(), "vars": set()}
-        secret_pattern = re.compile(r"\$\{\{\s*secrets\.(\w+)\s*\}\}")
-        var_pattern = re.compile(r"\$\{\{\s*vars\.(\w+)\s*\}\}")
-
+        secret_pattern = re.compile(r"secrets\.(\w+)")
+        var_pattern = re.compile(r"vars\.(\w+)")
         workflows_path = os.path.join(workflow_dir, "contents", ".github", "workflows")
         files = []
         if os.path.isdir(workflows_path):
@@ -384,12 +400,23 @@ class BenchmarkRunner:
         if not provider:
             return None
         provider_keys = {
-            AIProvider.GOOGLE_GEMINI: ["GEMINI_API_KEY"],
+            AIProvider.GOOGLE_GEMINI: [
+                "GEMINI_API_KEY",
+                "GEMINI_MODEL",
+                "GEMINI_DEBUG",
+            ],
             AIProvider.ANTHROPIC_CLAUDE: ["ANTHROPIC_API_KEY"],
             AIProvider.OPENAI_CODEX: ["OPENAI_API_KEY"],
             AIProvider.AMAZON_Q: ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
             AIProvider.GITHUB_COPILOT: ["COPILOT_GITHUB_TOKEN"],
-            AIProvider.OPENROUTER: ["OPENROUTER_API_KEY", "ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN"],
+            AIProvider.OPENROUTER: [
+                "GEMINI_API_KEY",
+                "GEMINI_MODEL",
+                "GEMINI_DEBUG",
+                "OPENROUTER_API_KEY",
+                "ANTHROPIC_BASE_URL",
+                "ANTHROPIC_AUTH_TOKEN",
+            ],
         }
         required_keys = provider_keys.get(provider, [])
         missing = [key for key in required_keys if not os.environ.get(key)]

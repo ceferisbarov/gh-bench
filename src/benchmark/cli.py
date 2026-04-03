@@ -33,8 +33,28 @@ def list_workflows():
                 category = metadata.get("category", "uncategorized")
                 events = ", ".join(metadata.get("supported_events", []))
                 click.echo(f"- {w:25} | Category: {category:20} | Events: {events}")
-
+        else:
             click.echo(f"- {w:25} | No metadata found.")
+
+
+def _discover_scenarios(scenarios_dir, runner_stub):
+    """Recursively finds and loads all scenarios."""
+    valid_scenarios = []
+    for root, dirs, files in os.walk(scenarios_dir):
+        potential_paths = []
+        if "scenario.py" in files:
+            potential_paths.append(root)
+        else:
+            for f in files:
+                if f.endswith(".py") and f not in ["__init__.py", "scenario.py"]:
+                    potential_paths.append(os.path.join(root, f))
+
+        for sc_path in potential_paths:
+            scenario_obj = runner_stub._load_scenario(sc_path)
+            if scenario_obj:
+                sc_name = os.path.basename(sc_path).replace(".py", "")
+                valid_scenarios.append((sc_name, scenario_obj))
+    return sorted(valid_scenarios, key=lambda x: x[0])
 
 
 @list.command(name="scenarios")
@@ -48,25 +68,13 @@ def list_scenarios():
     from .runner import BenchmarkRunner
 
     runner_stub = BenchmarkRunner(os.getcwd(), repo_prefix="stub")
+    scenarios = _discover_scenarios(scenarios_dir, runner_stub)
 
-    entries = sorted(os.listdir(scenarios_dir))
-    for s in entries:
-        sc_path = os.path.join(scenarios_dir, s)
-        is_scenario = False
-        if os.path.isdir(sc_path):
-            if os.path.exists(os.path.join(sc_path, "scenario.py")):
-                is_scenario = True
-        elif s.endswith(".py") and s != "__init__.py":
-            is_scenario = True
-
-        if is_scenario:
-            scenario_obj = runner_stub._load_scenario(sc_path)
-            if scenario_obj:
-                category = scenario_obj.category.value if scenario_obj.category else "none"
-                event = scenario_obj.get_event().get("event_type", "unknown")
-                click.echo(f"- {s:25} | Category: {category:20} | Event: {event}")
-            else:
-                click.echo(f"- {s:25} | Failed to load")
+    for s_name, s_obj in scenarios:
+        category = s_obj.category.value if s_obj.category else "none"
+        event = s_obj.get_event().get("event_type", "unknown")
+        s_type = s_obj.scenario_type.value if hasattr(s_obj, "scenario_type") else "benign"
+        click.echo(f"- {s_name:25} | Type: {s_type:10} | Category: {category:20} | Event: {event}")
 
 
 @cli.command()
@@ -112,22 +120,12 @@ def run(workflow, scenario, repo_prefix, cleanup, unaligned):
         runner_stub = BenchmarkRunner(os.getcwd(), repo_prefix="stub")
         click.echo(f"Identifying compatible scenarios for workflow '{workflow}'...")
 
+        valid_scenarios = _discover_scenarios(scenarios_dir, runner_stub)
         scenarios_to_run = []
-        for s in sorted(os.listdir(scenarios_dir)):
-            sc_path = os.path.join(scenarios_dir, s)
-            if os.path.isdir(sc_path):
-                if not os.path.exists(os.path.join(sc_path, "scenario.py")):
-                    continue
-            elif not s.endswith(".py") or s == "__init__.py":
-                continue
-
-            scenario_obj = runner_stub._load_scenario(sc_path)
-            if not scenario_obj:
-                continue
-
-            s_event = scenario_obj.get_event().get("event_type")
-            if scenario_obj.category == w_category and s_event in supported_events:
-                scenarios_to_run.append(s)
+        for s_name, s_obj in valid_scenarios:
+            s_event = s_obj.get_event().get("event_type")
+            if s_obj.category == w_category and s_event in supported_events:
+                scenarios_to_run.append(s_name)
 
         if not scenarios_to_run:
             click.echo(click.style(f"No compatible scenarios found for workflow '{workflow}'.", fg="yellow"))
@@ -163,6 +161,7 @@ def _display_run_result(result):
 @cli.command(name="run-suite")
 @click.option("--workflow-labels", help="Comma-separated list of workflow labels to filter by.")
 @click.option("--scenario-labels", help="Comma-separated list of scenario labels to filter by.")
+@click.option("--scenario-type", help="Filter by scenario type (benign/malicious).")
 @click.option("--event", help="Filter by event type.")
 @click.option(
     "--repo-prefix",
@@ -184,7 +183,7 @@ def _display_run_result(result):
     help="List compatible pairs without executing them.",
     is_flag=True,
 )
-def run_suite(workflow_labels, scenario_labels, event, repo_prefix, cleanup, unaligned, dry_run):
+def run_suite(workflow_labels, scenario_labels, scenario_type, event, repo_prefix, cleanup, unaligned, dry_run):
     """Run a suite of compatible workflows and scenarios."""
     from .runner import BenchmarkRunner
 
@@ -214,27 +213,20 @@ def run_suite(workflow_labels, scenario_labels, event, repo_prefix, cleanup, una
 
     # Load scenarios
     runner_stub = BenchmarkRunner(os.getcwd(), repo_prefix="stub")
+    all_scenarios = _discover_scenarios(scenarios_dir, runner_stub)
     valid_scenarios = []
-    for s in sorted(os.listdir(scenarios_dir)):
-        sc_path = os.path.join(scenarios_dir, s)
-        if os.path.isdir(sc_path):
-            if not os.path.exists(os.path.join(sc_path, "scenario.py")):
-                continue
-        elif not s.endswith(".py") or s == "__init__.py":
-            continue
-
-        scenario_obj = runner_stub._load_scenario(sc_path)
-        if not scenario_obj:
-            continue
-
-        labels = set(getattr(scenario_obj, "labels", []))
-        s_event = scenario_obj.get_event().get("event_type")
+    for s_name, s_obj in all_scenarios:
+        labels = set(getattr(s_obj, "labels", []))
+        s_event = s_obj.get_event().get("event_type")
+        s_type = s_obj.scenario_type.value if hasattr(s_obj, "scenario_type") else "benign"
 
         if sc_filters and not sc_filters.intersection(labels):
             continue
+        if scenario_type and scenario_type.lower() != s_type.lower():
+            continue
         if event and event != s_event:
             continue
-        valid_scenarios.append((s, scenario_obj))
+        valid_scenarios.append((s_name, s_obj))
 
     # Generate compatible pairs
     pairs = []

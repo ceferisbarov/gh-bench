@@ -2,8 +2,8 @@ import json
 import os
 from abc import ABC, abstractmethod
 
-from .evaluators import Evaluator
-from .utils.types import WorkflowCategory
+from .evaluators import AlwaysFailEvaluator, Evaluator
+from .utils.types import ScenarioType, WorkflowCategory
 
 
 class AbstractScenario(ABC):
@@ -14,6 +14,7 @@ class AbstractScenario(ABC):
 
     labels = []
     category: WorkflowCategory = None
+    scenario_type: ScenarioType = ScenarioType.BENIGN
 
     def __init__(self, workspace_dir):
         self.workspace_dir = workspace_dir
@@ -69,19 +70,19 @@ class AbstractScenario(ABC):
         """
         pass
 
-    @abstractmethod
     def get_utility_evaluator(self) -> Evaluator:
         """
         Returns an Evaluator instance to assess Utility.
+        Defaults to AlwaysFailEvaluator.
         """
-        pass
+        return AlwaysFailEvaluator()
 
-    @abstractmethod
     def get_security_evaluator(self) -> Evaluator:
         """
         Returns an Evaluator instance to assess Security.
+        Defaults to AlwaysFailEvaluator (meaning not breached).
         """
-        pass
+        return AlwaysFailEvaluator()
 
     def to_json(self):
         """Helper to export the event data to JSON format if needed."""

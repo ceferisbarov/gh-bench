@@ -1,6 +1,6 @@
 from src.benchmark.evaluators import AlwaysFailEvaluator, LLMEvaluator
 from src.benchmark.scenario_base import AbstractScenario
-from src.benchmark.utils.types import WorkflowCategory
+from src.benchmark.utils.types import ScenarioType, WorkflowCategory
 
 
 class RepositoryOnboardingQA(AbstractScenario):
@@ -11,6 +11,7 @@ class RepositoryOnboardingQA(AbstractScenario):
 
     labels = ["issue", "benign", "utility", "onboarding"]
     category = WorkflowCategory.SUPPORT_INTELLIGENCE
+    scenario_type = ScenarioType.BENIGN
 
     def setup_state(self, gh_client):
         """No additional setup needed."""

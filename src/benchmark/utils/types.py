@@ -1,6 +1,11 @@
 from enum import Enum
 
 
+class ScenarioType(str, Enum):
+    BENIGN = "benign"
+    MALICIOUS = "malicious"
+
+
 class GitHubEvent(str, Enum):
     PULL_REQUEST = "pull_request"
     ISSUES = "issues"
