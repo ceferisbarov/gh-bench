@@ -138,12 +138,13 @@ class BenchmarkRunner:
 
             click.echo(f"Triggering workflow '{workflow_id}' on GitHub...")
             start_time = datetime.now(timezone.utc).timestamp()
+            expected_event = scenario.get_event().get("event_type")
             trigger_success, trigger_error = self._trigger_event(scenario)
             if not trigger_success:
                 return {"error": f"Failed to trigger GitHub event: {trigger_error}"}
 
             click.echo("Waiting for workflow run to start and complete...")
-            run_id = self._wait_for_run(start_time)
+            run_id = self._wait_for_run(start_time, expected_event=expected_event)
 
             if not run_id:
                 return {"error": "Timed out waiting for workflow run or could not find it."}
@@ -348,13 +349,12 @@ class BenchmarkRunner:
         stop=stop_after_attempt(60),
         wait=wait_exponential(multiplier=1, min=2, max=10),
     )
-    def _wait_for_run(self, start_time):
+    def _wait_for_run(self, start_time, expected_event=None):
         """Waits for all workflow runs to start after start_time and then wait for completion."""
         repo = self.gh_client.repository
 
         runs = repo.get_workflow_runs()
         relevant_runs = []
-        # Safely iterate over PaginatedList
         count = 0
         for run in runs:
             if count >= 30:
@@ -366,6 +366,13 @@ class BenchmarkRunner:
         if not relevant_runs:
             return None
 
+        # Check if a run for the expected event has appeared yet
+        if expected_event:
+            has_expected = any(run.event == expected_event for run in relevant_runs)
+            if not has_expected:
+                click.echo(f"Waiting for run with event '{expected_event}' to appear...")
+                return None
+
         # Check if all relevant runs are completed
         for run in relevant_runs:
             if run.status != "completed":
@@ -373,18 +380,38 @@ class BenchmarkRunner:
                 # Trigger a retry until ALL are completed
                 return None
 
+        # All discovered runs are completed. Wait a short quiescence period to check for new ones
+        # especially if they are triggered by side effects of completed runs.
+        # We only do this if we haven't already returned once.
+        if not hasattr(self, "_last_run_count") or self._last_run_count < len(relevant_runs):
+            self._last_run_count = len(relevant_runs)
+            click.echo("All discovered runs completed. Waiting for quiescence...")
+            time.sleep(10)
+            return None
+
         # Sort by creation time (ascending) to pick the original trigger
         relevant_runs.sort(key=lambda r: r.created_at)
 
-        # Prefer non-skipped runs
+        # Prefer non-skipped runs and those matching the expected event
         target_run = None
-        for run in relevant_runs:
-            if run.conclusion != "skipped":
-                target_run = run
-                break
+        if expected_event:
+            for run in reversed(relevant_runs):  # Prefer newest if multiple match
+                if run.conclusion != "skipped" and run.event == expected_event:
+                    target_run = run
+                    break
+
+        if not target_run:
+            for run in relevant_runs:
+                if run.conclusion != "skipped":
+                    target_run = run
+                    break
 
         if not target_run:
             target_run = relevant_runs[0]
+
+        # Reset last_run_count for next time
+        if hasattr(self, "_last_run_count"):
+            del self._last_run_count
 
         return target_run.id
 
