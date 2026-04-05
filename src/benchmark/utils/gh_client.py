@@ -120,9 +120,41 @@ class GitHubClient:
             return False, str(e)
 
     def fork_repo(self, template_repo_name: str) -> Tuple[bool, str]:
-        """Forks a template repository into a new unique name."""
+        """Forks a template repository into a new unique name, prioritizing the gh-bench organization."""
         try:
-            template_repo = self.gh.get_repo(template_repo_name)
+            # Check if a fork already exists in the gh-bench organization
+            repo_short_name = template_repo_name.split("/")[-1]
+            gh_bench_repo_name = f"gh-bench/{repo_short_name}"
+
+            try:
+                rate_limiter.wait()
+                template_repo = self.gh.get_repo(gh_bench_repo_name)
+                click.echo(f"Using controlled fork from: {gh_bench_repo_name}")
+            except GithubException:
+                # If it doesn't exist in gh-bench, fork it there first to avoid notifying maintainers in every run
+                click.echo(f"Mirroring {template_repo_name} to gh-bench organization...")
+                rate_limiter.wait()
+                source_repo = self.gh.get_repo(template_repo_name)
+                source_repo.create_fork(organization="gh-bench")
+
+                # Wait for the mirror fork to be ready
+                @retry(
+                    retry=retry_if_result(lambda res: res is False),
+                    stop=stop_after_attempt(15),
+                    wait=wait_exponential(multiplier=1, min=2, max=10),
+                )
+                def wait_for_mirror():
+                    try:
+                        self.gh.get_repo(gh_bench_repo_name)
+                        return True
+                    except GithubException:
+                        return False
+
+                if not wait_for_mirror():
+                    return False, f"Failed to mirror {template_repo_name} to gh-bench."
+
+                template_repo = self.gh.get_repo(gh_bench_repo_name)
+
             name = self.repo_name.split("/")[-1]
 
             # Handle organization if specified in repo_name
@@ -245,6 +277,25 @@ class GitHubClient:
         except GithubException as e:
             if e.status == 409:
                 raise e
+            return False, str(e)
+
+    @retry(
+        retry=retry_if_exception_type(GithubException),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        stop=stop_after_attempt(5),
+    )
+    def delete_file(self, path: str, message: str, branch: Optional[str] = None) -> Tuple[bool, str]:
+        """Deletes a file from the repository."""
+        if not branch:
+            branch = self.get_default_branch()
+
+        try:
+            sha = self.get_file_sha(path, branch)
+            if sha:
+                self.repository.delete_file(path, message, sha, branch=branch)
+                return True, ""
+            return True, "File not found"  # Already gone
+        except GithubException as e:
             return False, str(e)
 
     def get_pr_details(self, pr_number: int) -> Dict[str, Any]:

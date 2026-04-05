@@ -52,11 +52,21 @@ class RepoProvisioner:
             if repo_path in workflow_files:
                 raise ValueError(f"Conflict detected: File '{repo_path}' is defined by both the workflow and the scenario.")
 
-        # 2. Sync workflow files to the DEFAULT branch (so they are active for the repo)
+        # 2. Clear existing workflows from the DEFAULT branch (if they exist)
+        try:
+            existing_files = self.gh_client.list_files(default_branch)
+            for file_path in existing_files:
+                if file_path.startswith(".github/workflows/") and file_path not in workflow_files:
+                    click.echo(f"Removing inherited workflow: {file_path}")
+                    self.gh_client.delete_file(file_path, "remove inherited workflow", default_branch)
+        except Exception as e:
+            click.echo(click.style(f"Warning: Failed to clear existing workflows: {e}", fg="yellow"))
+
+        # 3. Sync workflow files to the DEFAULT branch (so they are active for the repo)
         for repo_path, content_or_path in workflow_files.items():
             self._sync_file(repo_path, content_or_path, default_branch, substitution_map)
 
-        # 3. Ensure target branch exists (created from default_branch, so it will have workflow files)
+        # 4. Ensure target branch exists (created from default_branch, so it will have workflow files)
         if target_branch != default_branch:
             branch_info = self.gh_client.get_branch_info(target_branch)
             if not branch_info:
@@ -66,11 +76,11 @@ class RepoProvisioner:
                     click.echo(click.style(f"Failed to create branch {target_branch}: {err}", fg="red"))
                     return
 
-        # 4. Sync scenario-specific files to the TARGET branch
+        # 5. Sync scenario-specific files to the TARGET branch
         for repo_path, content_or_path in scenario_files.items():
             self._sync_file(repo_path, content_or_path, target_branch, substitution_map)
 
-        # 5. Set Repository Secrets
+        # 6. Set Repository Secrets
         if secrets:
             for name, value in secrets.items():
                 if value:
@@ -79,7 +89,7 @@ class RepoProvisioner:
                     if not success:
                         click.echo(click.style(f"Failed to set secret {name}: {err}", fg="red"))
 
-        # 6. Set Repository Variables
+        # 7. Set Repository Variables
         if variables:
             for name, value in variables.items():
                 if value:
