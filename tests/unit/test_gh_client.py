@@ -137,7 +137,7 @@ def test_gh_client_fork_repo(mock_github):
     success, err = client.fork_repo("source/template")
 
     assert success is True
-    mock_template_repo.create_fork.assert_called_with(name="new-repo")
+    mock_template_repo.create_fork.assert_called_with(name="new-repo", default_branch_only=True)
 
 
 def test_gh_client_delete_repo(mock_github):
@@ -149,3 +149,51 @@ def test_gh_client_delete_repo(mock_github):
 
     assert success is True
     mock_repo.delete.assert_called_once()
+
+
+def test_gh_client_batch_sync(mock_github):
+    client = GitHubClient(repo="test/repo")
+    mock_repo = MagicMock()
+    mock_repo.default_branch = "main"
+    mock_github.return_value.get_repo.return_value = mock_repo
+
+    mock_ref = MagicMock()
+    mock_repo.get_git_ref.return_value = mock_ref
+
+    mock_old_commit = MagicMock()
+    mock_repo.get_git_commit.return_value = mock_old_commit
+
+    mock_tree = MagicMock()
+    mock_item = MagicMock()
+    mock_item.path = ".github/workflows/old.yml"
+    mock_item.type = "blob"
+    mock_item.mode = "100644"
+    mock_item.sha = "old-sha"
+    mock_tree.tree = [mock_item]
+    mock_repo.get_git_tree.return_value = mock_tree
+
+    mock_new_tree = MagicMock()
+    mock_repo.create_git_tree.return_value = mock_new_tree
+
+    mock_new_commit = MagicMock()
+    mock_new_commit.sha = "new-sha"
+    mock_repo.create_git_commit.return_value = mock_new_commit
+
+    additions = {".github/workflows/new.yml": "new content"}
+    deletions = [".github/workflows/old.yml"]
+
+    success, err = client.batch_sync(additions, deletions, "batch commit", branch="main")
+
+    assert success is True
+    # Verify create_git_tree was called with the new element
+    args, kwargs = mock_repo.create_git_tree.call_args
+    elements = args[0]
+    assert len(elements) == 1
+    # InputGitTreeElement stores attributes as _InputGitTreeElement__path etc. in some versions
+    # or just path. We can check if it's there.
+    element = elements[0]
+    found_path = getattr(element, "path", None) or getattr(element, "_InputGitTreeElement__path", None)
+    assert found_path == ".github/workflows/new.yml"
+
+    mock_repo.create_git_commit.assert_called_once()
+    mock_ref.edit.assert_called_with("new-sha")

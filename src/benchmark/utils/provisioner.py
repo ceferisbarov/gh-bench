@@ -28,10 +28,14 @@ class RepoProvisioner:
             click.echo(click.style(f"Failed to ensure repository {self.gh_client.repo_name} exists.", fg="red"))
             return
 
+        # Ensure Actions are enabled (forked repos might have them disabled by default)
+        click.echo(f"Enabling GitHub Actions for {self.gh_client.repo_name}...")
+        self.gh_client.enable_actions()
+
         default_branch = repo_info.get("defaultBranchRef", {}).get("name") or "main"
         target_branch = branch or default_branch
 
-        # 1. Collect all files to be provisioned
+        # 1. Collect all workflow files
         workflow_files = {}
         if os.path.isdir(workflow_dir):
             contents_dir = os.path.join(workflow_dir, "contents")
@@ -52,21 +56,25 @@ class RepoProvisioner:
             if repo_path in workflow_files:
                 raise ValueError(f"Conflict detected: File '{repo_path}' is defined by both the workflow and the scenario.")
 
-        # 2. Clear existing workflows from the DEFAULT branch (if they exist)
+        # 2. Batch sync workflows to the DEFAULT branch
         try:
-            existing_files = self.gh_client.list_files(default_branch)
-            for file_path in existing_files:
-                if file_path.startswith(".github/workflows/") and file_path not in workflow_files:
-                    click.echo(f"Removing inherited workflow: {file_path}")
-                    self.gh_client.delete_file(file_path, "remove inherited workflow", default_branch)
+            # We want to clear ALL existing workflows in the folder and replace them with the new set.
+            # This is more efficient than deleting them one by one and avoids orphaned workflows.
+            deletions = [".github/workflows/"]
+
+            additions = {}
+            for repo_path, content_or_path in workflow_files.items():
+                additions[repo_path] = self._get_content(repo_path, content_or_path, substitution_map)
+
+            if additions or deletions:
+                click.echo(f"Batch syncing workflows to {default_branch} (clearing .github/workflows/)...")
+                success, err = self.gh_client.batch_sync(additions, deletions, "provision workflows", default_branch)
+                if not success:
+                    click.echo(click.style(f"Failed to batch sync workflows: {err}", fg="red"))
         except Exception as e:
-            click.echo(click.style(f"Warning: Failed to clear existing workflows: {e}", fg="yellow"))
+            click.echo(click.style(f"Warning: Failed to clear/sync workflows: {e}", fg="yellow"))
 
-        # 3. Sync workflow files to the DEFAULT branch (so they are active for the repo)
-        for repo_path, content_or_path in workflow_files.items():
-            self._sync_file(repo_path, content_or_path, default_branch, substitution_map)
-
-        # 4. Ensure target branch exists (created from default_branch, so it will have workflow files)
+        # 3. Ensure target branch exists (created from default_branch, so it will have workflow files)
         if target_branch != default_branch:
             branch_info = self.gh_client.get_branch_info(target_branch)
             if not branch_info:
@@ -76,11 +84,18 @@ class RepoProvisioner:
                     click.echo(click.style(f"Failed to create branch {target_branch}: {err}", fg="red"))
                     return
 
-        # 5. Sync scenario-specific files to the TARGET branch
-        for repo_path, content_or_path in scenario_files.items():
-            self._sync_file(repo_path, content_or_path, target_branch, substitution_map)
+        # 4. Sync scenario-specific files to the TARGET branch
+        if scenario_files:
+            additions = {}
+            for repo_path, content_or_path in scenario_files.items():
+                additions[repo_path] = self._get_content(repo_path, content_or_path, substitution_map)
 
-        # 6. Set Repository Secrets
+            click.echo(f"Batch syncing scenario files to {target_branch}...")
+            success, err = self.gh_client.batch_sync(additions, [], "provision scenario files", target_branch)
+            if not success:
+                click.echo(click.style(f"Failed to batch sync scenario files: {err}", fg="red"))
+
+        # 5. Set Repository Secrets
         if secrets:
             for name, value in secrets.items():
                 if value:
@@ -89,7 +104,7 @@ class RepoProvisioner:
                     if not success:
                         click.echo(click.style(f"Failed to set secret {name}: {err}", fg="red"))
 
-        # 7. Set Repository Variables
+        # 6. Set Repository Variables
         if variables:
             for name, value in variables.items():
                 if value:
@@ -98,8 +113,8 @@ class RepoProvisioner:
                     if not success:
                         click.echo(click.style(f"Failed to set variable {name}: {err}", fg="red"))
 
-    def _sync_file(self, repo_path, content_or_path, branch, substitution_map):
-        """Internal helper to sync a single file to a specific branch."""
+    def _get_content(self, repo_path, content_or_path, substitution_map):
+        """Reads and optionally patches file content."""
         content = content_or_path
         is_binary = False
         if isinstance(content_or_path, str) and os.path.exists(content_or_path):
@@ -112,15 +127,9 @@ class RepoProvisioner:
                 except UnicodeDecodeError:
                     is_binary = True
 
-        click.echo(f"Syncing {repo_path} to {branch}...")
-        success, err = self.gh_client.put_file(
-            repo_path,
-            content if not is_binary else content.decode("latin-1"),
-            f"provision {repo_path}",
-            branch,
-        )
-        if not success:
-            click.echo(click.style(f"Failed to sync file {repo_path}: {err}", fg="red"))
+        if is_binary:
+            return content.decode("latin-1")
+        return content
 
     def _patch_yaml(self, content: str, substitution_map: dict) -> str:
         """Replaces official action references with adversarial forks/tags."""

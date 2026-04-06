@@ -196,35 +196,47 @@ class BenchmarkRunner:
         return None
 
     def _capture_context_snapshot(self, scenario, workflow_dir):
-        """Captures the full context (files, event, meta) for diagnostic purposes."""
+        """Captures targeted metadata and injected files for diagnostic purposes without full repo download."""
         repo = self.gh_client.repository
 
-        files = {}
-        try:
-            tree = repo.get_git_tree(repo.default_branch, recursive=True)
-            for item in tree.tree:
-                if item.type == "blob":
-                    valid_exts = [".ts", ".js", ".py", ".md", ".yml", ".yaml", ".json", ".txt"]
-                    if any(item.path.endswith(ext) for ext in valid_exts):
-                        content = repo.get_contents(item.path).decoded_content.decode("utf-8")
-                        files[item.path] = content
-        except Exception as e:
-            files["error"] = str(e)
-
-        workflow_contents = {}
-        workflows_path = os.path.join(workflow_dir, "contents", ".github", "workflows")
-        if os.path.isdir(workflows_path):
-            for f in os.listdir(workflows_path):
-                if f.endswith(".yml") or f.endswith(".yaml"):
-                    with open(os.path.join(workflows_path, f), "r") as wf:
-                        workflow_contents[f] = wf.read()
-
-        return {
+        snapshot = {
+            "repository": self.repo_name,
+            "default_branch": repo.default_branch,
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "event": scenario.get_event(),
-            "repo_files": files,
-            "workflow_definitions": workflow_contents,
+            "injected_files_content": {},  # Full content of what WE care about
             "runtime_state": scenario.runtime_state,
         }
+
+        try:
+            # 1. Capture content of our injected workflows
+            click.echo("  Snapshotting workflows...")
+            try:
+                workflow_contents = repo.get_contents(".github/workflows")
+                if isinstance(workflow_contents, list):
+                    for content in workflow_contents:
+                        if content.type == "file":
+                            snapshot["injected_files_content"][content.path] = content.decoded_content.decode("utf-8")
+            except Exception:
+                pass  # No workflows or error
+
+            # 2. Capture content of files required by the scenario
+            required_files = scenario.get_required_files()
+            if required_files:
+                click.echo(f"  Snapshotting {len(required_files)} scenario files...")
+                for repo_path in required_files:
+                    if repo_path not in snapshot["injected_files_content"]:
+                        try:
+                            content = repo.get_contents(repo_path)
+                            if not isinstance(content, list):
+                                snapshot["injected_files_content"][repo_path] = content.decoded_content.decode("utf-8")
+                        except Exception:
+                            continue
+
+        except Exception as e:
+            snapshot["error"] = str(e)
+
+        return snapshot
 
     def _get_workflow_requirements(self, workflow_dir):
         """Scans workflow YAML files for 'secrets.NAME' and 'vars.NAME' patterns."""
@@ -274,6 +286,7 @@ class BenchmarkRunner:
         event_type = scenario_event.get("event_type")
         data = scenario_event.get("data", {})
         repo = self.gh_client.repository
+        default_branch = repo.default_branch
 
         try:
             if event_type == "issues":
@@ -284,8 +297,8 @@ class BenchmarkRunner:
                 pr = repo.create_pull(
                     title=data.get("title", "Test PR"),
                     body=data.get("body", "Test Body"),
-                    head=data.get("head", "main"),
-                    base=data.get("base", "main"),
+                    head=data.get("head", default_branch),
+                    base=data.get("base", default_branch),
                 )
                 scenario.runtime_state["pr_number"] = pr.number
                 return True, None

@@ -21,6 +21,8 @@ def mock_gh_client():
     client.fork_repo.return_value = (True, "")
     client.delete_repo.return_value = (True, "")
     client.put_file.return_value = (True, "")
+    client.batch_sync.return_value = (True, "")
+    client.list_files.return_value = []
     return client
 
 
@@ -34,11 +36,11 @@ def test_provision_basic(mock_gh_client, tmp_path):
     provisioner = RepoProvisioner(mock_gh_client)
     provisioner.provision(workflow_dir=str(workflow_dir))
 
-    # Check if workflow was synced (backward compatibility)
-    mock_gh_client.put_file.assert_called_once()
-    args, kwargs = mock_gh_client.put_file.call_args
-    assert args[0] == ".github/workflows/workflow.yml"
-    assert args[1] == "workflow content"
+    # Check if batch_sync was called for workflows
+    mock_gh_client.batch_sync.assert_called_once()
+    args, kwargs = mock_gh_client.batch_sync.call_args
+    assert ".github/workflows/workflow.yml" in args[0]
+    assert args[0][".github/workflows/workflow.yml"] == "workflow content"
     assert args[3] == "main"
 
 
@@ -69,26 +71,15 @@ def test_provision_standard_structure(mock_gh_client, tmp_path):
     provisioner = RepoProvisioner(mock_gh_client)
     provisioner.provision(workflow_dir=str(workflow_dir))
 
-    # Check if all files were synced to the correct relative paths
-    # README.md is synced during provision, and potentially also as initial commit if repo was empty/new
-    # but here RepoProvisioner._ensure_repo_exists is mocked to return an existing repo.
+    # We expect 1 call to batch_sync for the workflows and contents on default branch
+    mock_gh_client.batch_sync.assert_called_once()
+    args, _ = mock_gh_client.batch_sync.call_args
+    additions = args[0]
 
-    # We expect 3 calls to put_file for the contents
-    assert mock_gh_client.put_file.call_count == 3
-
-    call_args = [call[0] for call in mock_gh_client.put_file.call_args_list]
-
-    # Normalize paths for comparison (some OS might use different separators, though tmp_path usually uses /)
-    synced_paths = {arg[0].replace("\\", "/") for arg in call_args}
-
-    assert ".github/workflows/main.yml" in synced_paths
-    assert "scripts/test.sh" in synced_paths
-    assert "README.md" in synced_paths
-
-    # Verify content of one file
-    for arg in call_args:
-        if arg[0].replace("\\", "/") == ".github/workflows/main.yml":
-            assert arg[1] == "main workflow content"
+    assert ".github/workflows/main.yml" in additions
+    assert "scripts/test.sh" in additions
+    assert "README.md" in additions
+    assert additions[".github/workflows/main.yml"] == "main workflow content"
 
 
 def test_provision_with_files(mock_gh_client, tmp_path):
@@ -101,11 +92,12 @@ def test_provision_with_files(mock_gh_client, tmp_path):
 
     provisioner.provision(workflow_dir=str(workflow_dir), required_files=required_files)
 
-    # Check if file was synced
-    mock_gh_client.put_file.assert_called_once()
-    args, kwargs = mock_gh_client.put_file.call_args
-    assert args[0] == "file.txt"
-    assert args[1] == "content"
+    # Check if batch_sync was called twice: once for workflows (clearing), once for scenario files
+    assert mock_gh_client.batch_sync.call_count == 2
+
+    # Check scenario files sync
+    args, kwargs = mock_gh_client.batch_sync.call_args
+    assert args[0] == {"file.txt": "content"}
     assert args[3] == "main"
 
 
@@ -119,21 +111,18 @@ def test_provision_new_branch(mock_gh_client, tmp_path):
     mock_gh_client.create_branch.return_value = (True, "")
 
     provisioner = RepoProvisioner(mock_gh_client)
-    provisioner.provision(workflow_dir=str(workflow_dir), branch="feature")
+    required_files = {"test.txt": "data"}
+    provisioner.provision(workflow_dir=str(workflow_dir), required_files=required_files, branch="feature")
 
     # Verify branch creation
     mock_gh_client.create_branch.assert_called_once_with("feature", "main")
 
-    # Verify file sync (if any) would go to feature branch
-    required_files = {"test.txt": "data"}
-    provisioner.provision(workflow_dir=str(workflow_dir), required_files=required_files, branch="feature")
+    # Verify batch_sync was called twice
+    assert mock_gh_client.batch_sync.call_count == 2
 
-    # The first provision was without required files, so only put_file for workflow files (if any)
-    # The second provision has required_files and branch="feature".
-    # Since workflow_dir is empty and has no standard structure, only required_files are synced.
-
-    # Check the last call to put_file specifically
-    args, kwargs = mock_gh_client.put_file.call_args
+    # Verify second batch_sync for scenario files went to feature branch
+    args, kwargs = mock_gh_client.batch_sync.call_args
+    assert args[0] == {"test.txt": "data"}
     assert args[3] == "feature"
 
 
@@ -155,7 +144,7 @@ def test_provision_create_repo(mock_gh_client, tmp_path):
     provisioner.provision(workflow_dir=str(workflow_dir))
 
     mock_gh_client.create_repo.assert_called_once()
-    # Should have put README.md as initial commit
+    # Should still have put README.md as initial commit via put_file for now
     mock_gh_client.put_file.assert_any_call(
         "README.md",
         "# Benchmark Repository\nGenerated by AI Benchmark Suite.",

@@ -22,6 +22,8 @@
 - [x] fix metadata format & update metadata for existing workflows
 - [x] create labels: coding vs. triage, pr vs. issue, analysis, create prs (Implemented via Workflow Taxonomy)
 - [ ] create docs
+- [ ] support actions from outsiders (needs a second account)
+- [ ] human readable error message if creating a second fork of the same repo
 
 ## High Priority Roadmap
 - [ ] **Refusal Detection**: Enhance `LLMEvaluator` and `Analyzer` to detect when a model refuses an instruction due to internal safety guardrails.

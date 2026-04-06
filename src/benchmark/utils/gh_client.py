@@ -5,7 +5,7 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 import click
-from github import Github, GithubException, Repository
+from github import Github, GithubException, InputGitTreeElement, Repository
 from tenacity import (
     before_sleep_log,
     retry,
@@ -166,9 +166,9 @@ class GitHubClient:
                     org = owner
 
             if org:
-                template_repo.create_fork(organization=org, name=name)
+                template_repo.create_fork(organization=org, name=name, default_branch_only=True)
             else:
-                template_repo.create_fork(name=name)
+                template_repo.create_fork(name=name, default_branch_only=True)
 
             @retry(
                 retry=retry_if_result(lambda res: res is False),
@@ -356,6 +356,17 @@ class GitHubClient:
         except GithubException as e:
             return False, str(e)
 
+    def enable_actions(self) -> Tuple[bool, str]:
+        """Enables GitHub Actions for the repository."""
+        try:
+            # Using gh CLI for simplicity as PyGitHub doesn't have a direct method for this
+            stdout, stderr = self.run_gh(["repo", "edit", "--enable-actions"])
+            if stderr and "error" in stderr.lower():
+                return False, stderr
+            return True, ""
+        except Exception as e:
+            return False, str(e)
+
     def list_repos(self, limit: int = 100) -> List[Dict[str, str]]:
         """Lists repositories for the authenticated user."""
         try:
@@ -374,6 +385,109 @@ class GitHubClient:
             return [r for r in runs[:10]]
         except GithubException:
             return []
+
+    def batch_sync(
+        self,
+        additions: Dict[str, str],
+        deletions: List[str],
+        message: str,
+        branch: Optional[str] = None,
+    ) -> Tuple[bool, str]:
+        """Performs multiple additions and deletions in a single commit."""
+        if not branch:
+            branch = self.get_default_branch()
+
+        try:
+            print(f"DEBUG: Starting batch_sync on branch {branch}")
+            repo = self.repository
+            ref = repo.get_git_ref(f"heads/{branch}")
+            old_commit = repo.get_git_commit(ref.object.sha)
+            base_tree_sha = old_commit.tree.sha
+
+            # We avoid recursive=True because it fails with 502 on large repos like Sentry.
+            # Instead, we will build the new tree by navigating only what we need.
+
+            def get_tree_without_path(current_tree_sha, path_parts):
+                """Recursively navigates trees to 'delete' a path by omitting it from a new tree."""
+                tree = repo.get_git_tree(current_tree_sha, recursive=False)
+                elements = []
+
+                target = path_parts[0]
+                remaining = path_parts[1:]
+
+                found_target = False
+                for item in tree.tree:
+                    if item.path == target:
+                        found_target = True
+                        if remaining:
+                            # We need to go deeper into this subtree
+                            if item.type == "tree":
+                                new_subtree_sha = get_tree_without_path(item.sha, remaining)
+                                if new_subtree_sha:
+                                    elements.append(
+                                        InputGitTreeElement(
+                                            path=item.path, mode=item.mode, type=item.type, sha=new_subtree_sha
+                                        )
+                                    )
+                                # if new_subtree_sha is None, it means the whole subtree was deleted
+                            else:
+                                # Target is a file, but we have remaining path parts?
+                                # This means the path doesn't match the structure. Keep it as is.
+                                elements.append(
+                                    InputGitTreeElement(path=item.path, mode=item.mode, type=item.type, sha=item.sha)
+                                )
+
+                        else:
+                            # This is the item to delete! Just don't add it to elements.
+                            pass
+                    else:
+                        # Not our target, keep it
+                        elements.append(InputGitTreeElement(path=item.path, mode=item.mode, type=item.type, sha=item.sha))
+
+                if not found_target:
+                    # Target not found in this tree, nothing to delete here
+                    return current_tree_sha
+
+                if not elements:
+                    # Entire tree is empty now
+                    return None
+
+                new_tree = repo.create_git_tree(elements)
+                return new_tree.sha
+
+            current_tree_sha = base_tree_sha
+            for deletion_path in deletions:
+                # Normalize path: remove leading/trailing slashes
+                clean_path = deletion_path.strip("/")
+                if not clean_path:
+                    continue
+
+                print(f"DEBUG: Deleting {clean_path} ...")
+                path_parts = clean_path.split("/")
+                current_tree_sha = get_tree_without_path(current_tree_sha, path_parts)
+                if not current_tree_sha:
+                    # We deleted everything? (unlikely but possible)
+                    # Create an empty tree to avoid errors
+                    empty_tree = repo.create_git_tree([])
+                    current_tree_sha = empty_tree.sha
+
+            print("DEBUG: Handled deletions. Now handling additions...")
+            # 2. Handle additions using the base_tree merge capability
+            elements = []
+            for path, content in additions.items():
+                elements.append(InputGitTreeElement(path=path, mode="100644", type="blob", content=content))
+
+            # Create the final tree by merging additions into our modified tree
+            final_tree = repo.create_git_tree(elements, base_tree=repo.get_git_tree(current_tree_sha))
+
+            print("DEBUG: Creating commit...")
+            new_commit = repo.create_git_commit(message, final_tree, [old_commit])
+            ref.edit(new_commit.sha)
+            print("DEBUG: batch_sync completed successfully.")
+
+            return True, ""
+        except Exception as e:
+            return False, str(e)
 
     def run_gh(self, args, **kwargs):
         """Legacy compatibility method. SHOULD BE REMOVED eventually."""
