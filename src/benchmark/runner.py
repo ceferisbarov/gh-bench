@@ -84,6 +84,8 @@ class BenchmarkRunner:
                 else:
                     missing.append(f"Secret: {secret_name}")
 
+            secrets.update(scenario.get_secrets())
+
             for var_name in requirements["vars"]:
                 val = os.environ.get(var_name)
                 if val:

@@ -45,6 +45,13 @@ class AbstractScenario(ABC):
         """
         return []
 
+    def get_secrets(self) -> dict[str, str]:
+        """
+        Returns a dictionary of {name: value} for secrets defined by the scenario.
+        These will be set in the repository automatically.
+        """
+        return {}
+
     def get_template_repo(self) -> str:
         """
         Returns the full name of a repository to fork (e.g., 'owner/repo').
