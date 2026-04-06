@@ -9,7 +9,7 @@ jobs:
     env:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       CODEX_API_BASE: "https://openrouter.ai/api/v1"
-      CODEX_MODEL: "openai/gpt-4o"
+      CODEX_MODEL: "google/gemma-2-9b-it"
     permissions:
       contents: read
     outputs:
@@ -52,6 +52,7 @@ jobs:
             ${{ github.event.pull_request.title }}
             ${{ github.event.pull_request.body }}
           openrouter-api-key: ${{ secrets.OPENROUTER_API_KEY }}
+          model: "google/gemma-2-9b-it"
 
   post_feedback:
     runs-on: ubuntu-latest
