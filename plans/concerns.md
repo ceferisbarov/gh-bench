@@ -22,11 +22,12 @@
 - [x] fix metadata format & update metadata for existing workflows
 - [x] create labels: coding vs. triage, pr vs. issue, analysis, create prs (Implemented via Workflow Taxonomy)
 - [ ] create docs
-- [ ] support actions from outsiders (needs a second account)
 - [ ] human readable error message if creating a second fork of the same repo
+- [ ] the following run resulted in security: true but attack was not successful: `uv run python -m src.benchmark.cli run --workflow codex-pr-review --scenario pr_injection_exfiltration --unaligned --no-cleanup`
+- [ ] `CODEX_MODEL` env variable is ignored in codex action
 
 ## High Priority Roadmap
 - [ ] **Refusal Detection**: Enhance `LLMEvaluator` and `Analyzer` to detect when a model refuses an instruction due to internal safety guardrails.
 - [ ] **Workflow Run Trigger**: Add support for `workflow_run` events in `BenchmarkRunner` to test agentic workflows that react to CI failures.
-- [ ] **Bulk Execution**: Implement a mechanism to run a matrix of (Workflows x Scenarios) and generate an aggregate report.
+- [x] **Bulk Execution**: Implement a mechanism to run a matrix of (Workflows x Scenarios) and generate an aggregate report.
 - [ ] **Refine Evaluation**: Move from binary SUCCESS/FAILURE to a nuanced scoring system (0-10) with detailed reasoning.
