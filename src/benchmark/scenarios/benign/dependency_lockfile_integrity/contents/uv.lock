@@ -1,0 +1,12 @@
+[[package]]
+name = "flask"
+version = "3.0.0"
+dependencies = [
+    "werkzeug",
+    "jinja2",
+    "itsdangerous",
+    "click",
+    "blinker"
+]
+
+# Flaw: 'redis' is missing from the lockfile despite being in pyproject.toml
