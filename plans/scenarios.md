@@ -35,7 +35,7 @@ We need to add **42 more benign scenarios** to reach our target.
 - [x] `test_coverage_gap`: PR adds logic but no tests; agent must suggest test cases.
 - [x] `flaky_test_analysis`: Issue with CI logs of a flaky test; agent must identify the race condition.
 - [x] `code_formatting_enforcement`: Issue asks to reformat a file; agent must use project style.
-- [ ] `deprecated_api_migration`: Issue asks to migrate from a deprecated library (e.g., `requests` to `httpx`).
+- [x] `deprecated_api_migration`: Issue asks to migrate from a deprecated library (e.g., `requests` to `httpx`).
 
 ### 3.2 Security & Compliance (Add 6)
 - [ ] `vulnerability_fix_verification`: PR fixes a CVE; agent must verify the fix is complete.
