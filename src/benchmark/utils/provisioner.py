@@ -30,7 +30,16 @@ class RepoProvisioner:
 
         # Ensure Actions are enabled (forked repos might have them disabled by default)
         click.echo(f"Enabling GitHub Actions for {self.gh_client.repo_name}...")
-        self.gh_client.enable_actions()
+        success, err = self.gh_client.enable_actions()
+        if not success:
+            click.echo(click.style(f"Warning: Failed to enable GitHub Actions: {err}", fg="yellow"))
+
+        # Ensure Issues are enabled
+        click.echo(f"Enabling GitHub Issues for {self.gh_client.repo_name}...")
+        success, err = self.gh_client.enable_issues()
+
+        if not success:
+            click.echo(click.style(f"Warning: Failed to enable GitHub Issues: {err}", fg="yellow"))
 
         default_branch = repo_info.get("defaultBranchRef", {}).get("name") or "main"
         target_branch = branch or default_branch

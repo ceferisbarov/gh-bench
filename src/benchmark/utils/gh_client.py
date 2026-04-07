@@ -109,12 +109,15 @@ class GitHubClient:
                 owner = self.repo_name.split("/", 1)[0]
                 user = self.gh.get_user()
                 if user.login.lower() == owner.lower():
-                    user.create_repo(name, private=not public)
+                    repo = user.create_repo(name, private=not public)
                 else:
                     org = self.gh.get_organization(owner)
-                    org.create_repo(name, private=not public)
+                    repo = org.create_repo(name, private=not public)
             else:
-                self.gh.get_user().create_repo(name, private=not public)
+                repo = self.gh.get_user().create_repo(name, private=not public)
+
+            self.repo_name = repo.full_name
+            self._repo_cache = repo
             return True, ""
         except GithubException as e:
             return False, str(e)
@@ -122,6 +125,18 @@ class GitHubClient:
     def fork_repo(self, template_repo_name: str) -> Tuple[bool, str]:
         """Forks a template repository into a new unique name, prioritizing the gh-bench organization."""
         try:
+            # First, check if the target repo already exists and delete it if so
+            try:
+                rate_limiter.wait()
+                existing_repo = self.gh.get_repo(self.repo_name)
+                click.echo(f"Repository {self.repo_name} already exists. Deleting it first...")
+                existing_repo.delete()
+                self._repo_cache = None
+                # Wait for it to be fully deleted
+                time.sleep(5)
+            except GithubException:
+                pass  # Repo doesn't exist, which is what we want
+
             # Check if a fork already exists in the gh-bench organization
             repo_short_name = template_repo_name.split("/")[-1]
             gh_bench_repo_name = f"gh-bench/{repo_short_name}"
@@ -166,9 +181,12 @@ class GitHubClient:
                     org = owner
 
             if org:
-                template_repo.create_fork(organization=org, name=name, default_branch_only=True)
+                new_repo = template_repo.create_fork(organization=org, name=name, default_branch_only=True)
             else:
-                template_repo.create_fork(name=name, default_branch_only=True)
+                new_repo = template_repo.create_fork(name=name, default_branch_only=True)
+
+            self.repo_name = new_repo.full_name
+            self._repo_cache = new_repo
 
             @retry(
                 retry=retry_if_result(lambda res: res is False),
@@ -367,6 +385,17 @@ class GitHubClient:
         except Exception as e:
             return False, str(e)
 
+    def enable_issues(self) -> Tuple[bool, str]:
+        """Enables GitHub Issues for the repository."""
+        try:
+            # Using gh CLI for simplicity as PyGitHub doesn't have a direct method for this
+            stdout, stderr = self.run_gh(["repo", "edit", self.repo_name, "--enable-issues"])
+            if stderr:
+                return False, stderr
+            return True, ""
+        except Exception as e:
+            return False, str(e)
+
     def list_repos(self, limit: int = 100) -> List[Dict[str, str]]:
         """Lists repositories for the authenticated user."""
         try:
@@ -398,7 +427,6 @@ class GitHubClient:
             branch = self.get_default_branch()
 
         try:
-            print(f"DEBUG: Starting batch_sync on branch {branch}")
             repo = self.repository
             ref = repo.get_git_ref(f"heads/{branch}")
             old_commit = repo.get_git_commit(ref.object.sha)
@@ -462,7 +490,6 @@ class GitHubClient:
                 if not clean_path:
                     continue
 
-                print(f"DEBUG: Deleting {clean_path} ...")
                 path_parts = clean_path.split("/")
                 current_tree_sha = get_tree_without_path(current_tree_sha, path_parts)
                 if not current_tree_sha:
@@ -471,7 +498,6 @@ class GitHubClient:
                     empty_tree = repo.create_git_tree([])
                     current_tree_sha = empty_tree.sha
 
-            print("DEBUG: Handled deletions. Now handling additions...")
             # 2. Handle additions using the base_tree merge capability
             elements = []
             for path, content in additions.items():
@@ -480,10 +506,8 @@ class GitHubClient:
             # Create the final tree by merging additions into our modified tree
             final_tree = repo.create_git_tree(elements, base_tree=repo.get_git_tree(current_tree_sha))
 
-            print("DEBUG: Creating commit...")
             new_commit = repo.create_git_commit(message, final_tree, [old_commit])
             ref.edit(new_commit.sha)
-            print("DEBUG: batch_sync completed successfully.")
 
             return True, ""
         except Exception as e:
@@ -492,7 +516,7 @@ class GitHubClient:
     def run_gh(self, args, **kwargs):
         """Legacy compatibility method. SHOULD BE REMOVED eventually."""
         cmd = ["gh"] + args
-        if kwargs.get("use_repo", True):
+        if kwargs.get("use_repo"):
             cmd += ["-R", self.repo_name]
 
         env = os.environ.copy()
