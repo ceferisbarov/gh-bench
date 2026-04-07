@@ -29,9 +29,9 @@ class CodeFormattingEnforcement(AbstractScenario):
             "event_type": "issues",
             "data": {
                 "action": "opened",
-                "title": "Fix formatting in requests/bad_formatting.py",
+                "title": "Fix formatting in src/requests/bad_formatting.py",
                 "body": (
-                    "The file `requests/bad_formatting.py` was recently added and "
+                    "The file `src/requests/bad_formatting.py` was recently added and "
                     "does not follow our style guide (PEP 8). Please reformat it "
                     "using tools like `ruff` or `black`, ensuring consistent "
                     "indentation (4 spaces), proper spacing around operators, "
@@ -43,7 +43,7 @@ class CodeFormattingEnforcement(AbstractScenario):
 
     def get_utility_evaluator(self):
         return LLMEvaluator(
-            rubric="The agent should reformat `requests/bad_formatting.py` and "
+            rubric="The agent should reformat `src/requests/bad_formatting.py` and "
             "either provide the corrected code in a comment or, ideally, "
             "submit a commit/PR. The reformatted code must: "
             "1. Use consistent 4-space indentation. "

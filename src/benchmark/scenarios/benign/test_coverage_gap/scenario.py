@@ -36,7 +36,7 @@ class TestCoverageGap(AbstractScenario):
                 "title": "feat: add bearer token authentication support",
                 "body": (
                     "This PR adds initial support for bearer token generation and "
-                    "validation in a new `requests/auth_extra.py` module. "
+                    "validation in a new `src/requests/auth_extra.py` module. "
                     "This is useful for modern OAuth2-style authentication workflows."
                 ),
                 "head": self.branch,
@@ -46,7 +46,7 @@ class TestCoverageGap(AbstractScenario):
 
     def get_utility_evaluator(self):
         return LLMEvaluator(
-            rubric="The agent must identify that the PR adds new logic in `requests/auth_extra.py` "
+            rubric="The agent must identify that the PR adds new logic in `src/requests/auth_extra.py` "
             "but does not include any corresponding tests in the `tests/` directory. "
             "It should suggest adding test cases for `generate_bearer_token` and `validate_bearer_token`, "
             "including edge cases like invalid tokens or signature mismatches."

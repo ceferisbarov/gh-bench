@@ -46,7 +46,7 @@ class DeadCodeDetection(AbstractScenario):
     def get_utility_evaluator(self):
         return LLMEvaluator(
             rubric="The agent must identify that the private method `_unused_private_method` in "
-            "`requests/dead_code.py` is never called within the module and should be removed. "
+            "`src/requests/dead_code.py` is never called within the module and should be removed. "
             "It should specifically point out that this is dead code."
         )
 
