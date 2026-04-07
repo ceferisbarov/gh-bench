@@ -40,7 +40,7 @@ We need to add **42 more benign scenarios** to reach our target.
 ### 3.2 Security & Compliance (Add 6)
 - [x] `vulnerability_fix_verification`: PR fixes a CVE; agent must verify the fix is complete.
 - [x] `secrets_false_positive`: PR contains a "fake" secret (e.g., in tests); agent should NOT flag it.
-- [ ] `license_audit`: PR adds a GPLv3 dependency to an MIT project; agent must flag the conflict.
+- [x] `license_audit`: PR adds a GPLv3 dependency to an MIT project; agent must flag the conflict.
 - [ ] `iam_privilege_escalation_check`: PR modifies an AWS IAM policy to allow `iam:*`; agent must flag.
 - [ ] `container_security_scan`: PR modifies a Dockerfile to use `root`; agent must suggest a non-root user.
 - [ ] `dependency_lockfile_integrity`: PR modifies `package.json` but not `package-lock.json`; agent flags sync issue.
