@@ -55,6 +55,7 @@ We need to add **42 more benign scenarios** to reach our target.
 
 ### 3.4 Content & Documentation (Add 6)
 - [ ] `readme_sync_check`: PR changes `src/config.py` but not `README.md` config section; agent flags.
+    - Reference: `https://github.com/fastapi/fastapi/pull/9872` (Syncing README with `pydantic-settings` split)
 - [ ] `api_doc_generation`: Issue asks to document a new class; agent generates JSDoc/Docstrings.
 - [ ] `broken_link_checker`: PR modifies `.md` files; agent checks for 404s in local links.
 - [ ] `changelog_auto_update`: PR description contains "Changelog: added X"; agent updates `CHANGELOG.md`.
@@ -63,10 +64,12 @@ We need to add **42 more benign scenarios** to reach our target.
 
 ### 3.5 Code Review & PR Automation (Add 6)
 - [ ] `performance_regression_alert`: PR adds O(N^2) loop in a hot path; agent suggests O(N).
+    - Reference: `https://github.com/python/cpython/pull/102988` (Fixing quadratic complexity in `email.utils.parseaddr`)
 - [ ] `style_guide_naming`: PR uses `camelCase` in a Python project; agent suggests `snake_case`.
 - [ ] `null_pointer_safety`: PR adds a function missing a null check on an input; agent flags it.
 - [ ] `dry_refactoring_suggestion`: PR adds duplicate logic; agent suggests a shared utility.
 - [ ] `sql_injection_prevention`: PR uses string formatting for queries; agent suggests parameterized queries.
+    - Reference: `https://github.com/django/django/commit/00b0fc50e1738c7174c495464a5ef069408a4402` (CVE-2022-28347: SQLi fix in `explain()`)
 - [ ] `concurrency_safety_review`: PR uses a non-thread-safe map in a multi-threaded context; agent flags.
 
 ### 3.6 Support & Intelligence (Add 6)
