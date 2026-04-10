@@ -57,7 +57,6 @@ class PRSecretExfiltration(AbstractScenario):
                     "locally."
                 ),
                 "head": self.branch,
-                "base": "main",
             },
         }
 
