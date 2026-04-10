@@ -1,3 +1,4 @@
+import glob
 import importlib.util
 import json
 import os
@@ -14,6 +15,17 @@ from .analyzer import BenchmarkAnalyzer
 from .utils.gh_client import GitHubClient
 from .utils.provisioner import RepoProvisioner
 from .utils.types import AIProvider
+
+
+def _extract_inline_prompts(workflow_dict) -> list[str]:
+    """Walk a parsed workflow YAML and collect all `with.prompt` values from action steps."""
+    prompts = []
+    for job in (workflow_dict or {}).get("jobs", {}).values():
+        for step in job.get("steps", []):
+            prompt = (step.get("with") or {}).get("prompt")
+            if prompt:
+                prompts.append(str(prompt))
+    return prompts
 
 
 class BenchmarkRunner:
@@ -47,7 +59,7 @@ class BenchmarkRunner:
             return f"{owner}/{repo_name}"
         return repo_name
 
-    def run(self, workflow_id, scenario_id, cleanup=True, unaligned=False):
+    def run(self, workflow_id, scenario_id, cleanup=True, unaligned=False, log_llm_input=False):
         """Triggers a GitHub workflow and waits for completion."""
         workflow_dir = os.path.join(self.workspace_dir, "src/benchmark/workflows", workflow_id)
         scenario_path = self._find_scenario_path(scenario_id)
@@ -137,6 +149,14 @@ class BenchmarkRunner:
             snapshot = self._capture_context_snapshot(scenario, workflow_dir)
             with open(os.path.join(runs_dir, "context_snapshot.json"), "w") as f:
                 json.dump(snapshot, f, indent=4)
+
+            if log_llm_input:
+                llm_input = self._reconstruct_llm_input(scenario, workflow_dir)
+                click.echo(click.style("\n--- Reconstructed LLM Input ---", bold=True))
+                click.echo(llm_input)
+                click.echo(click.style("--- End LLM Input ---\n", bold=True))
+                with open(os.path.join(runs_dir, "llm_input.txt"), "w") as f:
+                    f.write(llm_input)
 
             click.echo(f"Triggering workflow '{workflow_id}' on GitHub...")
             start_time = datetime.now(timezone.utc).timestamp()
@@ -271,6 +291,60 @@ class BenchmarkRunner:
         if "GITHUB_TOKEN" in requirements["secrets"]:
             requirements["secrets"].remove("GITHUB_TOKEN")
         return requirements
+
+    def _reconstruct_llm_input(self, scenario, workflow_dir) -> str:
+        """Reconstructs the effective LLM prompt by substituting known GitHub context values into workflow YAMLs."""
+        import yaml
+
+        event = scenario.get_event()
+        data = event.get("data", {})
+
+        substitutions = {
+            "github.repository": self.repo_name,
+            "github.event.pull_request.title": data.get("title", ""),
+            "github.event.pull_request.body": data.get("body", ""),
+            "github.event.pull_request.number": "<PR_NUMBER>",
+            "github.event.pull_request.base.ref": data.get("base", "<BASE_REF>"),
+            "github.event.pull_request.base.sha": "<BASE_SHA>",
+            "github.event.pull_request.head.sha": "<HEAD_SHA>",
+            "github.event.pull_request.user.login": "<PR_AUTHOR>",
+            "github.event.issue.number": "<ISSUE_NUMBER>",
+            "github.event.issue.title": data.get("title", ""),
+            "github.event.issue.body": data.get("body", ""),
+            "github.event.comment.body": data.get("body", ""),
+            "github.ref_name": "<REF_NAME>",
+            "github.event_name": event.get("event_type", ""),
+            "github.run_id": "<RUN_ID>",
+        }
+
+        contents_dir = os.path.join(workflow_dir, "contents")
+        yaml_files = sorted(
+            glob.glob(os.path.join(contents_dir, "**/*.yml"), recursive=True)
+            + glob.glob(os.path.join(contents_dir, "**/*.yaml"), recursive=True)
+        )
+
+        output_parts = []
+        for yml_path in yaml_files:
+            with open(yml_path) as f:
+                raw = f.read()
+
+            substituted = raw
+            for key, value in substitutions.items():
+                substituted = substituted.replace(f"${{{{ {key} }}}}", value)
+
+            header = f"=== {os.path.relpath(yml_path, workflow_dir)} ==="
+            output_parts.append(header + "\n" + substituted)
+
+            try:
+                parsed = yaml.safe_load(substituted)
+                prompts = _extract_inline_prompts(parsed)
+                if prompts:
+                    extracted = "\n---\n".join(prompts)
+                    output_parts.append(f"--- extracted prompt(s) ---\n{extracted}")
+            except Exception:
+                pass
+
+        return "\n\n".join(output_parts)
 
     def _save_run_locally(self, result, run_result, runs_dir):
         """Saves run metadata and logs to the local 'runs/' directory."""

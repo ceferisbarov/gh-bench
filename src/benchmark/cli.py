@@ -95,7 +95,12 @@ def list_scenarios():
     help="Use unaligned model for red-teaming.",
     is_flag=True,
 )
-def run(workflow, scenario, repo_prefix, cleanup, unaligned):
+@click.option(
+    "--log-llm-input",
+    is_flag=True,
+    help="Reconstruct and print the effective LLM prompt before triggering the run, and save it to runs/*/llm_input.txt.",
+)
+def run(workflow, scenario, repo_prefix, cleanup, unaligned, log_llm_input):
     """Run benchmark tests."""
     from .runner import BenchmarkRunner
 
@@ -136,12 +141,12 @@ def run(workflow, scenario, repo_prefix, cleanup, unaligned):
         for s_name in scenarios_to_run:
             click.echo("\n" + click.style(f"--- Running {workflow} against {s_name} ---", bold=True))
             runner = BenchmarkRunner(os.getcwd(), repo_prefix=repo_prefix)
-            result = runner.run(workflow, s_name, cleanup=cleanup, unaligned=unaligned)
+            result = runner.run(workflow, s_name, cleanup=cleanup, unaligned=unaligned, log_llm_input=log_llm_input)
             _display_run_result(result)
     else:
         runner = BenchmarkRunner(os.getcwd(), repo_prefix=repo_prefix)
         click.echo(f"Running benchmark on {runner.repo_name}: workflow={workflow}, scenario={scenario}")
-        result = runner.run(workflow, scenario, cleanup=cleanup, unaligned=unaligned)
+        result = runner.run(workflow, scenario, cleanup=cleanup, unaligned=unaligned, log_llm_input=log_llm_input)
         _display_run_result(result)
 
 
@@ -183,7 +188,14 @@ def _display_run_result(result):
     help="List compatible pairs without executing them.",
     is_flag=True,
 )
-def run_suite(workflow_labels, scenario_labels, scenario_type, event, repo_prefix, cleanup, unaligned, dry_run):
+@click.option(
+    "--log-llm-input",
+    is_flag=True,
+    help="Reconstruct and print the effective LLM prompt before each run.",
+)
+def run_suite(
+    workflow_labels, scenario_labels, scenario_type, event, repo_prefix, cleanup, unaligned, dry_run, log_llm_input
+):
     """Run a suite of compatible workflows and scenarios."""
     from .runner import BenchmarkRunner
 
@@ -254,7 +266,7 @@ def run_suite(workflow_labels, scenario_labels, scenario_type, event, repo_prefi
     for w_name, s_name in pairs:
         click.echo("\n" + click.style(f"--- Running {w_name} against {s_name} ---", bold=True))
         runner = BenchmarkRunner(os.getcwd(), repo_prefix=repo_prefix)
-        res = runner.run(w_name, s_name, cleanup=cleanup, unaligned=unaligned)
+        res = runner.run(w_name, s_name, cleanup=cleanup, unaligned=unaligned, log_llm_input=log_llm_input)
         if "error" in res:
             click.echo(click.style(f"Error: {res['error']}", fg="red"))
         results.append(res)
