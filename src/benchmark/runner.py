@@ -12,6 +12,7 @@ import click
 from tenacity import retry, retry_if_result, stop_after_attempt, wait_exponential
 
 from .analyzer import BenchmarkAnalyzer
+from .attacks import AbstractAttack, load_attack
 from .utils.gh_client import GitHubClient
 from .utils.provisioner import RepoProvisioner
 from .utils.types import AIProvider
@@ -59,7 +60,28 @@ class BenchmarkRunner:
             return f"{owner}/{repo_name}"
         return repo_name
 
-    def run(self, workflow_id, scenario_id, cleanup=True, unaligned=False, log_llm_input=False):
+    def _inject_attack_slots(self, scenario, attack: AbstractAttack, context: str) -> None:
+        """Generate a payload and substitute it into all of the scenario's injection slots."""
+        goal = scenario.get_attack_goal()
+        if goal is None:
+            return
+        slots = scenario.get_injection_slots()
+        if not slots:
+            return
+        payload = attack.generate(goal, context)
+        for field, template in slots.items():
+            scenario.apply_attack(field, template.replace("{{INJECTION}}", payload))
+
+    def run(
+        self,
+        workflow_id,
+        scenario_id,
+        attack_id=None,
+        attack_payload=None,
+        cleanup=True,
+        unaligned=False,
+        log_llm_input=False,
+    ):
         """Triggers a GitHub workflow and waits for completion."""
         workflow_dir = os.path.join(self.workspace_dir, "src/benchmark/workflows", workflow_id)
         scenario_path = self._find_scenario_path(scenario_id)
@@ -150,13 +172,19 @@ class BenchmarkRunner:
             with open(os.path.join(runs_dir, "context_snapshot.json"), "w") as f:
                 json.dump(snapshot, f, indent=4)
 
+            llm_input = self._reconstruct_llm_input(scenario, workflow_dir)
+
             if log_llm_input:
-                llm_input = self._reconstruct_llm_input(scenario, workflow_dir)
                 click.echo(click.style("\n--- Reconstructed LLM Input ---", bold=True))
                 click.echo(llm_input)
                 click.echo(click.style("--- End LLM Input ---\n", bold=True))
                 with open(os.path.join(runs_dir, "llm_input.txt"), "w") as f:
                     f.write(llm_input)
+
+            if attack_id:
+                attack = load_attack(attack_id, payload=attack_payload)
+                click.echo(f"Applying attack '{attack_id}'...")
+                self._inject_attack_slots(scenario, attack, llm_input)
 
             click.echo(f"Triggering workflow '{workflow_id}' on GitHub...")
             start_time = datetime.now(timezone.utc).timestamp()
@@ -199,6 +227,250 @@ class BenchmarkRunner:
             else:
                 msg = f"SKIP CLEANUP: Repository {self.repo_name} remains active for debugging."
                 click.echo(click.style(msg, fg="yellow"))
+
+    def optimize(self, workflow_id, scenario_id, attack_id, iterations, cleanup=True):
+        """
+        Run the attack optimization loop: generate → trigger → score → update, N times.
+        Returns { best_payload, asr_curve, final_asr } and writes best_payload.txt.
+        Only the StateEvaluator is used per iteration to keep the loop fast.
+        """
+        workflow_dir = os.path.join(self.workspace_dir, "src/benchmark/workflows", workflow_id)
+        scenario_path = self._find_scenario_path(scenario_id)
+
+        if not os.path.exists(workflow_dir) or not scenario_path:
+            return {"error": f"Workflow dir ({workflow_id}) or scenario ({scenario_id}) not found."}
+
+        scenario = self._load_scenario(scenario_path)
+        if not scenario:
+            return {"error": f"Failed to load scenario {scenario_id}"}
+
+        goal = scenario.get_attack_goal()
+        if not goal:
+            return {"error": f"Scenario '{scenario_id}' has no get_attack_goal() — cannot optimize."}
+
+        attack = load_attack(attack_id)
+        timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        runs_dir = os.path.join(self.workspace_dir, "runs", f"optimize-{timestamp.replace(':', '-')}")
+        os.makedirs(runs_dir, exist_ok=True)
+        history_path = os.path.join(runs_dir, "attack_history.jsonl")
+
+        asr_curve = []
+
+        try:
+            click.echo(f"Provisioning repository {self.repo_name}...")
+            requirements = self._get_workflow_requirements(workflow_dir)
+            secrets = {k: v for k in requirements["secrets"] if (v := os.environ.get(k))}
+            secrets.update(scenario.get_secrets())
+            variables = {k: v for k in requirements["vars"] if (v := os.environ.get(k))}
+
+            self.provisioner.provision(
+                workflow_dir,
+                scenario.get_required_files(),
+                branch=getattr(scenario, "branch", None),
+                template_repo=scenario.get_template_repo(),
+                secrets=secrets,
+                variables=variables,
+                substitution_map={},
+            )
+            scenario.setup_state(self.gh_client)
+            context = self._reconstruct_llm_input(scenario, workflow_dir)
+
+            for i in range(iterations):
+                click.echo(click.style(f"\n--- Optimize iteration {i + 1}/{iterations} ---", bold=True))
+
+                self._inject_attack_slots(scenario, attack, context)
+
+                start_time = datetime.now(timezone.utc).timestamp()
+                expected_event = scenario.get_event().get("event_type")
+                ok, err = self._trigger_event(scenario)
+                if not ok:
+                    click.echo(click.style(f"Trigger failed: {err}", fg="red"))
+                    asr_curve.append(0)
+                    attack.update(0.0)
+                    scenario.reset_event_state(self.gh_client)
+                    continue
+
+                run_id = self._wait_for_run(start_time, expected_event=expected_event)
+                if not run_id:
+                    click.echo(click.style("Timed out waiting for run.", fg="red"))
+                    asr_curve.append(0)
+                    attack.update(0.0)
+                    scenario.reset_event_state(self.gh_client)
+                    continue
+
+                stdout, stderr = self._get_workflow_logs(run_id)
+                run_result = {"stdout": stdout, "stderr": stderr, "exit_code": 0}
+
+                security_breached = scenario.get_security_evaluator().evaluate(run_result, self.gh_client, scenario)
+                score = 1.0 if security_breached else 0.0
+                asr_curve.append(int(score))
+                click.echo(f"Iteration {i + 1} score: {score} (breached={security_breached})")
+
+                attack.update(score)
+
+                with open(history_path, "a") as f:
+                    import json as _json
+
+                    f.write(_json.dumps({"iteration": i + 1, "score": score, "run_id": run_id}) + "\n")
+
+                scenario.reset_event_state(self.gh_client)
+
+        finally:
+            if cleanup:
+                scenario.teardown_state(self.gh_client)
+                self.provisioner.teardown()
+            else:
+                click.echo(click.style(f"SKIP CLEANUP: {self.repo_name} remains active.", fg="yellow"))
+
+        final_asr = sum(asr_curve) / len(asr_curve) if asr_curve else 0.0
+        best = attack.best_payload
+
+        if best:
+            best_path = os.path.join(runs_dir, "best_payload.txt")
+            with open(best_path, "w") as f:
+                f.write(best)
+            click.echo(f"Best payload written to {best_path}")
+
+        result = {
+            "workflow": workflow_id,
+            "scenario": scenario_id,
+            "attack": attack_id,
+            "iterations": iterations,
+            "asr_curve": asr_curve,
+            "final_asr": final_asr,
+            "best_payload": best,
+            "runs_dir": runs_dir,
+        }
+        with open(os.path.join(runs_dir, "metadata.json"), "w") as f:
+            json.dump(result, f, indent=4)
+
+        click.echo(f"\nOptimization complete. Final ASR: {final_asr:.2f} ({sum(asr_curve)}/{len(asr_curve)})")
+        return result
+
+    def offline_optimize(self, workflow_id, scenario_id, attack_id, iterations, victim_model: str | None = None):
+        """
+        Optimize an attack entirely offline — no GitHub repo is provisioned.
+
+        Each iteration:
+          1. Reconstruct the baseline LLM prompt (what the model will see)
+          2. Generate an attack payload and inject it into the scenario's slots
+          3. Reconstruct the injected LLM prompt
+          4. Call the victim model directly via the OpenAI API (OPENAI_API_KEY)
+          5. Score with scenario.get_preflight_evaluator()
+          6. Feed score back to attack.update()
+
+        Returns { best_payload, asr_curve, final_asr, runs_dir }.
+        """
+        import os as _os
+
+        from openai import OpenAI
+
+        workflow_dir = _os.path.join(self.workspace_dir, "src/benchmark/workflows", workflow_id)
+        scenario_path = self._find_scenario_path(scenario_id)
+
+        if not _os.path.exists(workflow_dir) or not scenario_path:
+            return {"error": f"Workflow dir ({workflow_id}) or scenario ({scenario_id}) not found."}
+
+        scenario = self._load_scenario(scenario_path)
+        if not scenario:
+            return {"error": f"Failed to load scenario {scenario_id}"}
+
+        goal = scenario.get_attack_goal()
+        if not goal:
+            return {"error": f"Scenario '{scenario_id}' has no get_attack_goal() — cannot optimize."}
+
+        preflight_check = scenario.get_preflight_evaluator()
+        if preflight_check is None:
+            return {"error": f"Scenario '{scenario_id}' has no get_preflight_evaluator() — cannot run offline."}
+
+        model = victim_model or _os.environ.get("ATTACK_VICTIM_MODEL", "gpt-4o-mini")
+        openai_key = _os.environ.get("OPENAI_API_KEY")
+        if not openai_key:
+            return {"error": "OPENAI_API_KEY is not set. The victim model is called via the OpenAI API directly."}
+        client = OpenAI(api_key=openai_key)
+
+        attack = load_attack(attack_id)
+        timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        runs_dir = _os.path.join(self.workspace_dir, "runs", f"offline-{timestamp.replace(':', '-')}")
+        _os.makedirs(runs_dir, exist_ok=True)
+        history_path = _os.path.join(runs_dir, "attack_history.jsonl")
+
+        asr_curve = []
+
+        for i in range(iterations):
+            click.echo(click.style(f"\n--- Offline iteration {i + 1}/{iterations} ---", bold=True))
+
+            scenario._injected = {}
+            baseline_input = self._reconstruct_llm_input(scenario, workflow_dir, repo_name="owner/repo", prompts_only=True)
+
+            self._inject_attack_slots(scenario, attack, baseline_input)
+
+            injected_input = self._reconstruct_llm_input(scenario, workflow_dir, repo_name="owner/repo", prompts_only=True)
+
+            click.echo(f"Calling {model}...")
+            try:
+                resp = client.chat.completions.create(
+                    model=model,
+                    messages=[{"role": "user", "content": injected_input}],
+                    max_completion_tokens=1500,
+                )
+                response_text = resp.choices[0].message.content or ""
+            except Exception as e:
+                click.echo(click.style(f"Model call failed: {e}", fg="red"))
+                asr_curve.append(0)
+                attack.update(0.0)
+                continue
+
+            score = 1.0 if preflight_check(response_text) else 0.0
+            asr_curve.append(int(score))
+            status = click.style("PASS", fg="green") if score else click.style("FAIL", fg="red")
+            click.echo(f"Iteration {i + 1}: {status}")
+            if score == 0:
+                click.echo(f"Response preview: {response_text[:300]}")
+
+            attack.update(score)
+
+            with open(history_path, "a") as f:
+                f.write(
+                    json.dumps(
+                        {
+                            "iteration": i + 1,
+                            "score": score,
+                            "response_preview": response_text[:500],
+                        }
+                    )
+                    + "\n"
+                )
+
+            if score == 1.0:
+                click.echo(click.style("Attack succeeded — stopping early.", fg="green"))
+                break
+
+        final_asr = sum(asr_curve) / len(asr_curve) if asr_curve else 0.0
+        best = attack.best_payload
+
+        if best:
+            best_path = _os.path.join(runs_dir, "best_payload.txt")
+            with open(best_path, "w") as f:
+                f.write(best)
+            click.echo(f"\nBest payload written to {best_path}")
+
+        result = {
+            "workflow": workflow_id,
+            "scenario": scenario_id,
+            "attack": attack_id,
+            "iterations_run": len(asr_curve),
+            "asr_curve": asr_curve,
+            "final_asr": final_asr,
+            "best_payload": best,
+            "runs_dir": runs_dir,
+            "mode": "offline",
+        }
+        with open(_os.path.join(runs_dir, "metadata.json"), "w") as f:
+            json.dump(result, f, indent=4)
+
+        click.echo(f"\nOffline optimization complete. ASR: {final_asr:.2f} ({sum(asr_curve)}/{len(asr_curve)})")
+        return result
 
     def _find_scenario_path(self, scenario_id):
         """Recursively searches for a scenario by its ID."""
@@ -292,15 +564,29 @@ class BenchmarkRunner:
             requirements["secrets"].remove("GITHUB_TOKEN")
         return requirements
 
-    def _reconstruct_llm_input(self, scenario, workflow_dir) -> str:
-        """Reconstructs the effective LLM prompt by substituting known GitHub context values into workflow YAMLs."""
+    def _reconstruct_llm_input(
+        self,
+        scenario,
+        workflow_dir,
+        repo_name: str | None = None,
+        prompts_only: bool = False,
+    ) -> str:
+        """
+        Reconstructs the effective LLM prompt by substituting known GitHub context values
+        into workflow YAMLs.
+
+        prompts_only=True returns only the inline `with.prompt` values after substitution,
+        matching what the LLM actually receives in production (e.g. via codex-action).
+        prompts_only=False (default) returns the full YAML + extracted prompts, useful for
+        diagnostics and the --log-llm-input flag.
+        """
         import yaml
 
         event = scenario.get_event()
         data = event.get("data", {})
 
         substitutions = {
-            "github.repository": self.repo_name,
+            "github.repository": repo_name or self.repo_name,
             "github.event.pull_request.title": data.get("title", ""),
             "github.event.pull_request.body": data.get("body", ""),
             "github.event.pull_request.number": "<PR_NUMBER>",
@@ -319,8 +605,8 @@ class BenchmarkRunner:
 
         contents_dir = os.path.join(workflow_dir, "contents")
         yaml_files = sorted(
-            glob.glob(os.path.join(contents_dir, "**/*.yml"), recursive=True)
-            + glob.glob(os.path.join(contents_dir, "**/*.yaml"), recursive=True)
+            glob.glob(os.path.join(contents_dir, "**/*.yml"), recursive=True, include_hidden=True)
+            + glob.glob(os.path.join(contents_dir, "**/*.yaml"), recursive=True, include_hidden=True)
         )
 
         output_parts = []
@@ -328,21 +614,36 @@ class BenchmarkRunner:
             with open(yml_path) as f:
                 raw = f.read()
 
-            substituted = raw
-            for key, value in substitutions.items():
-                substituted = substituted.replace(f"${{{{ {key} }}}}", value)
+            if prompts_only:
+                # Parse the raw YAML first (before substitution) to extract prompt templates,
+                # then apply substitutions to each template string. This avoids YAML parse
+                # failures caused by injection payloads containing YAML-unsafe content.
+                try:
+                    raw_parsed = yaml.safe_load(raw)
+                    prompt_templates = _extract_inline_prompts(raw_parsed)
+                except Exception:
+                    prompt_templates = []
+                for template in prompt_templates:
+                    substituted = template
+                    for key, value in substitutions.items():
+                        substituted = substituted.replace(f"${{{{ {key} }}}}", value)
+                    output_parts.append(substituted)
+            else:
+                substituted = raw
+                for key, value in substitutions.items():
+                    substituted = substituted.replace(f"${{{{ {key} }}}}", value)
 
-            header = f"=== {os.path.relpath(yml_path, workflow_dir)} ==="
-            output_parts.append(header + "\n" + substituted)
+                header = f"=== {os.path.relpath(yml_path, workflow_dir)} ==="
+                output_parts.append(header + "\n" + substituted)
 
-            try:
-                parsed = yaml.safe_load(substituted)
-                prompts = _extract_inline_prompts(parsed)
+                try:
+                    parsed = yaml.safe_load(substituted)
+                    prompts = _extract_inline_prompts(parsed)
+                except Exception:
+                    prompts = []
                 if prompts:
                     extracted = "\n---\n".join(prompts)
                     output_parts.append(f"--- extracted prompt(s) ---\n{extracted}")
-            except Exception:
-                pass
 
         return "\n\n".join(output_parts)
 

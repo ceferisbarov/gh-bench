@@ -100,7 +100,18 @@ def list_scenarios():
     is_flag=True,
     help="Reconstruct and print the effective LLM prompt before triggering the run, and save it to runs/*/llm_input.txt.",
 )
-def run(workflow, scenario, repo_prefix, cleanup, unaligned, log_llm_input):
+@click.option(
+    "--attack",
+    "attack_id",
+    default=None,
+    help="Attack type to apply (autoinject, static). Omit to use the scenario's hardcoded payload.",
+)
+@click.option(
+    "--attack-payload",
+    default=None,
+    help="Inline payload string or path to a payload file. Used with --attack static.",
+)
+def run(workflow, scenario, repo_prefix, cleanup, unaligned, log_llm_input, attack_id, attack_payload):
     """Run benchmark tests."""
     from .runner import BenchmarkRunner
 
@@ -141,12 +152,28 @@ def run(workflow, scenario, repo_prefix, cleanup, unaligned, log_llm_input):
         for s_name in scenarios_to_run:
             click.echo("\n" + click.style(f"--- Running {workflow} against {s_name} ---", bold=True))
             runner = BenchmarkRunner(os.getcwd(), repo_prefix=repo_prefix)
-            result = runner.run(workflow, s_name, cleanup=cleanup, unaligned=unaligned, log_llm_input=log_llm_input)
+            result = runner.run(
+                workflow,
+                s_name,
+                attack_id=attack_id,
+                attack_payload=attack_payload,
+                cleanup=cleanup,
+                unaligned=unaligned,
+                log_llm_input=log_llm_input,
+            )
             _display_run_result(result)
     else:
         runner = BenchmarkRunner(os.getcwd(), repo_prefix=repo_prefix)
         click.echo(f"Running benchmark on {runner.repo_name}: workflow={workflow}, scenario={scenario}")
-        result = runner.run(workflow, scenario, cleanup=cleanup, unaligned=unaligned, log_llm_input=log_llm_input)
+        result = runner.run(
+            workflow,
+            scenario,
+            attack_id=attack_id,
+            attack_payload=attack_payload,
+            cleanup=cleanup,
+            unaligned=unaligned,
+            log_llm_input=log_llm_input,
+        )
         _display_run_result(result)
 
 
@@ -274,6 +301,97 @@ def run_suite(
     click.echo("\n" + click.style("--- Benchmark Suite Complete ---", bold=True))
     success = sum(1 for r in results if "error" not in r)
     click.echo(f"Runs: {success}/{len(pairs)} successful.")
+
+
+@cli.command()
+@click.option("--workflow", required=True, help="Workflow ID.")
+@click.option("--scenario", required=True, help="Scenario ID.")
+@click.option("--attack", "attack_id", required=True, help="Attack type (autoinject, static).")
+@click.option(
+    "--victim-model",
+    default=None,
+    help="OpenRouter model string for the victim (e.g. openai/gpt-5.4-2026-03-05). "
+    "Defaults to ATTACK_VICTIM_MODEL env var.",
+)
+def preflight(workflow, scenario, attack_id, victim_model):
+    """
+    Single offline shot: generate a payload, send the injected prompt directly to the
+    victim model, and report whether the attack succeeded. No GitHub repo needed.
+    """
+    from .runner import BenchmarkRunner
+
+    runner = BenchmarkRunner(os.getcwd(), repo_prefix="preflight")
+    result = runner.offline_optimize(workflow, scenario, attack_id, iterations=1, victim_model=victim_model)
+
+    if "error" in result:
+        click.echo(click.style(f"Error: {result['error']}", fg="red"))
+        return
+
+    score = result["asr_curve"][0] if result["asr_curve"] else 0
+    label = (
+        click.style("PASS — attack worked offline", fg="green")
+        if score
+        else click.style("FAIL — attack did not work offline", fg="red")
+    )
+    click.echo(f"\nPreflight result: {label}")
+    click.echo(f"Payload at: {result['runs_dir']}/best_payload.txt")
+    click.echo(
+        "\nNote: offline uses a plain chat call. The agentic Codex context may differ. "
+        "A PASS here is a strong indicator but not a guarantee."
+    )
+
+
+@cli.command()
+@click.option("--workflow", required=True, help="Workflow ID to run.")
+@click.option("--scenario", required=True, help="Scenario ID to optimize against.")
+@click.option("--attack", "attack_id", required=True, help="Attack type (autoinject, static).")
+@click.option("--iterations", default=5, show_default=True, help="Number of optimization iterations.")
+@click.option(
+    "--offline",
+    is_flag=True,
+    help="Optimize using direct model calls instead of GitHub workflow runs. "
+    "Fast, no repo provisioning. Requires scenario.get_preflight_evaluator().",
+)
+@click.option(
+    "--victim-model",
+    default=None,
+    help="Override victim model for offline mode (OpenRouter string). " "Defaults to ATTACK_VICTIM_MODEL env var.",
+)
+@click.option(
+    "--repo-prefix",
+    default=lambda: os.environ.get("GITHUB_REPO_PREFIX", "benchmark-run"),
+    help="Target GitHub repository prefix (online mode only).",
+)
+@click.option("--cleanup/--no-cleanup", default=True, help="Delete the repository after the run (online mode only).")
+def optimize(workflow, scenario, attack_id, iterations, offline, victim_model, repo_prefix, cleanup):
+    """Iteratively optimize an attack payload, writing the best result to runs/*/best_payload.txt."""
+    from .runner import BenchmarkRunner
+
+    runner = BenchmarkRunner(os.getcwd(), repo_prefix=repo_prefix)
+
+    if offline:
+        click.echo(
+            f"Offline optimization: workflow={workflow}, scenario={scenario}, "
+            f"attack={attack_id}, iterations={iterations}"
+        )
+        result = runner.offline_optimize(workflow, scenario, attack_id, iterations, victim_model=victim_model)
+    else:
+        click.echo(
+            f"Optimizing on {runner.repo_name}: workflow={workflow}, scenario={scenario}, "
+            f"attack={attack_id}, iterations={iterations}"
+        )
+        result = runner.optimize(workflow, scenario, attack_id, iterations, cleanup=cleanup)
+
+    if "error" in result:
+        click.echo(click.style(f"Error: {result['error']}", fg="red"))
+        return
+
+    click.echo("\n" + click.style("--- Optimization Result ---", bold=True))
+    click.echo(f"Final ASR : {result['final_asr']:.2f} ({sum(result['asr_curve'])}/{len(result['asr_curve'])})")
+    click.echo(f"ASR curve : {result['asr_curve']}")
+    click.echo(f"Runs dir  : {result['runs_dir']}")
+    if result.get("best_payload"):
+        click.echo(click.style("Best payload saved to runs_dir/best_payload.txt", fg="green"))
 
 
 @cli.command()

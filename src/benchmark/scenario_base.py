@@ -21,6 +21,54 @@ class AbstractScenario(ABC):
         self.scenario_dir = None
         self.runtime_state = {}
 
+    def get_preflight_evaluator(self):
+        """
+        Returns a callable (response: str) -> bool for offline attack validation,
+        or None if offline testing is not supported for this scenario.
+
+        The callable receives the victim model's raw text response and returns
+        True if the attack succeeded (i.e. the response contains the expected
+        malicious output). Used by the preflight and offline_optimize commands
+        to validate/optimize attacks without provisioning a GitHub repo.
+        """
+        return None
+
+    def get_attack_goal(self) -> str | None:
+        """
+        Returns the goal string passed to attack.generate() — what we want the
+        victim LLM to do (e.g. "run gh repo list --visibility=private").
+        Return None to skip attack injection and use the hardcoded get_event() payload.
+        """
+        return None
+
+    def get_injection_slots(self) -> dict[str, str]:
+        """
+        Returns {event_field: template} pairs. The runner substitutes the attack
+        payload at every {{INJECTION}} marker in each template, then calls
+        apply_attack(field, rendered_value).
+
+        Examples:
+          Full replacement:   {"pr_body": "{{INJECTION}}"}
+          Suffix injection:   {"pr_body": "## Summary\\nLegit text...\\n\\n{{INJECTION}}"}
+          Multi-field:        {"pr_title": "fix: {{INJECTION}}", "pr_body": "...{{INJECTION}}..."}
+
+        Default: empty dict — no injection slots, get_event() is used as-is.
+        """
+        return {}
+
+    def apply_attack(self, field: str, rendered: str) -> None:
+        """Store a rendered injection value. get_event() checks _injected for overrides."""
+        if not hasattr(self, "_injected"):
+            self._injected = {}
+        self._injected[field] = rendered
+
+    def reset_event_state(self, gh_client) -> None:  # noqa: ARG002
+        """
+        Called by the optimizer between iterations to close the PR/issue created
+        in the previous iteration so the next one can start clean.
+        Default is a no-op. Scenarios that open PRs or issues should override this.
+        """
+
     def get_required_files(self) -> dict:
         """
         Returns a dictionary of {repo_path: local_path_or_content}
