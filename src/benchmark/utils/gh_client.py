@@ -170,6 +170,20 @@ class GitHubClient:
 
                 template_repo = self.gh.get_repo(gh_bench_repo_name)
 
+            # Delete any existing fork of template_repo owned by this user (may have a different name
+            # from a previous --no-cleanup run, which would cause GitHub to return it instead of
+            # creating a fresh fork).
+            user_login = self.gh.get_user().login
+            rate_limiter.wait()
+            for fork in template_repo.get_forks():
+                if fork.owner.login.lower() == user_login.lower():
+                    click.echo(f"Deleting stale fork {fork.full_name}...")
+                    rate_limiter.wait()
+                    fork.delete()
+                    self._repo_cache = None
+                    time.sleep(5)
+                    break
+
             name = self.repo_name.split("/")[-1]
 
             # Handle organization if specified in repo_name
@@ -428,7 +442,17 @@ class GitHubClient:
 
         try:
             repo = self.repository
-            ref = repo.get_git_ref(f"heads/{branch}")
+
+            @retry(
+                retry=retry_if_exception_type(GithubException),
+                stop=stop_after_attempt(10),
+                wait=wait_exponential(multiplier=1, min=2, max=10),
+            )
+            def get_ref():
+                rate_limiter.wait()
+                return repo.get_git_ref(f"heads/{branch}")
+
+            ref = get_ref()
             old_commit = repo.get_git_commit(ref.object.sha)
             base_tree_sha = old_commit.tree.sha
 

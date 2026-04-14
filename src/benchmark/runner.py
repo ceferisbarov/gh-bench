@@ -403,7 +403,13 @@ class BenchmarkRunner:
             scenario._injected = {}
             baseline_input = self._reconstruct_llm_input(scenario, workflow_dir, repo_name="owner/repo", prompts_only=True)
 
-            self._inject_attack_slots(scenario, attack, baseline_input)
+            try:
+                self._inject_attack_slots(scenario, attack, baseline_input)
+            except ValueError as e:
+                click.echo(click.style(f"Attacker refused: {e}", fg="yellow"))
+                asr_curve.append(0)
+                attack.update(0.0)
+                continue
 
             injected_input = self._reconstruct_llm_input(scenario, workflow_dir, repo_name="owner/repo", prompts_only=True)
 
