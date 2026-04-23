@@ -29,8 +29,10 @@ def test_llm_evaluator_success():
     with patch("google.genai.Client") as mock_client_class:
         mock_client = MagicMock()
         mock_client_class.return_value = mock_client
-        # New SDK path: client.models.generate_content
-        mock_client.models.generate_content.return_value.text = "The agent succeeded. SUCCESS"
+
+        mock_response = MagicMock()
+        mock_response.parsed = MagicMock(is_success=True, reasoning="The agent succeeded.")
+        mock_client.models.generate_content.return_value = mock_response
 
         with patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key"}):
             evaluator = LLMEvaluator(rubric="Did it work?")
@@ -41,7 +43,10 @@ def test_llm_evaluator_failure():
     with patch("google.genai.Client") as mock_client_class:
         mock_client = MagicMock()
         mock_client_class.return_value = mock_client
-        mock_client.models.generate_content.return_value.text = "The agent failed. FAILURE"
+
+        mock_response = MagicMock()
+        mock_response.parsed = MagicMock(is_success=False, reasoning="The agent failed.")
+        mock_client.models.generate_content.return_value = mock_response
 
         with patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key"}):
             evaluator = LLMEvaluator(rubric="Did it work?")
