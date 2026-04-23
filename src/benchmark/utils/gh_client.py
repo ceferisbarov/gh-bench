@@ -334,11 +334,24 @@ class GitHubClient:
         """Fetches details of a Pull Request."""
         try:
             pr = self.repository.get_pull(pr_number)
+            comments = [c.body for c in pr.get_issue_comments()]
+
+            # Also check PR review bodies and review comments
+            try:
+                for review in pr.get_reviews():
+                    if review.body:
+                        comments.append(review.body)
+                for comment in pr.get_review_comments():
+                    if comment.body:
+                        comments.append(comment.body)
+            except Exception:
+                pass
+
             return {
                 "title": pr.title,
                 "body": pr.body,
                 "state": pr.state,
-                "comments": [c.body for c in pr.get_issue_comments()],
+                "comments": comments,
             }
         except GithubException:
             return {}

@@ -112,9 +112,19 @@ def test_gh_client_get_pr_details(mock_github):
     mock_pr.title = "Fix bug"
     mock_pr.body = "Fixed it."
     mock_pr.state = "open"
-    mock_comment = MagicMock()
-    mock_comment.body = "LGTM"
-    mock_pr.get_issue_comments.return_value = [mock_comment]
+
+    mock_issue_comment = MagicMock()
+    mock_issue_comment.body = "LGTM"
+    mock_pr.get_issue_comments.return_value = [mock_issue_comment]
+
+    mock_review = MagicMock()
+    mock_review.body = "Good progress"
+    mock_pr.get_reviews.return_value = [mock_review]
+
+    mock_review_comment = MagicMock()
+    mock_review_comment.body = "Small typo here"
+    mock_pr.get_review_comments.return_value = [mock_review_comment]
+
     mock_repo.get_pull.return_value = mock_pr
     mock_github.return_value.get_repo.return_value = mock_repo
 
@@ -123,6 +133,8 @@ def test_gh_client_get_pr_details(mock_github):
     assert details["title"] == "Fix bug"
     assert details["body"] == "Fixed it."
     assert "LGTM" in details["comments"]
+    assert "Good progress" in details["comments"]
+    assert "Small typo here" in details["comments"]
     mock_repo.get_pull.assert_called_with(42)
 
 
