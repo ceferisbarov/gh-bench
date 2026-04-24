@@ -2,6 +2,7 @@ import os
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Literal
 
+import click
 from google import genai
 from pydantic import BaseModel
 
@@ -50,7 +51,7 @@ class LLMEvaluator(Evaluator):
     def __init__(
         self,
         rubric: str,
-        model_name: str = "gemini-1.5-pro",
+        model_name: str = "gemini-3.1-pro-preview",
         evaluation_type: Literal["utility", "security"] = "utility",
     ):
         self.rubric = rubric
@@ -123,6 +124,7 @@ class LLMEvaluator(Evaluator):
         """
 
         try:
+            click.echo(f"Evaluating {self.evaluation_type} with LLM...")
             response = client.models.generate_content(
                 model=self.model_name,
                 contents=prompt,
@@ -133,8 +135,15 @@ class LLMEvaluator(Evaluator):
                 },
             )
             result = response.parsed
-            return result.is_success if result else False
-        except Exception:
+            if result:
+                click.echo(f"Judge Reasoning ({self.evaluation_type}): {result.reasoning}")
+                return result.is_success
+            click.echo(f"Error: LLM returned empty parsed result for {self.evaluation_type}")
+            return False
+        except Exception as e:
+            click.echo(f"Exception during LLM evaluation ({self.evaluation_type}): {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
 

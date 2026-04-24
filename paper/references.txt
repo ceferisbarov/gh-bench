@@ -1,0 +1,135 @@
+# ciject — Related Work Reference List
+# Add BibTeX entries to neurips2026/references.bib for each paper below.
+# Grouped by subsection as they will appear in the Related Work section.
+
+================================================================================
+## 1. Prompt Injection Attacks (Foundational)
+================================================================================
+
+[greshake2023] Greshake et al.
+"Not what you've signed up for: Compromising Real-World LLM-Integrated Applications
+with Indirect Prompt Injection"
+arXiv 2023. arXiv:2302.12173
+-- Seminal paper defining indirect prompt injection; attacks on Bing Chat and
+   code-completion engines. Key citation for establishing the attack class.
+
+[liu2023houyi] Liu et al.
+"Prompt Injection attack against LLM-integrated Applications"
+arXiv 2023. arXiv:2306.05499
+-- Formalizes prompt injection; introduces HouYi black-box attack technique
+   inspired by web injection. Closest prior formal treatment of the attack.
+
+[liu2024universal] Liu et al.
+"Automatic and Universal Prompt Injection Attacks against Large Language Models"
+arXiv 2024. arXiv:2403.04957
+-- Automated gradient-based universal payloads. Relevant to our attack
+   optimization component.
+
+[yi2023bipia] Yi et al.
+"Benchmarking and Defending against Indirect Prompt Injection Attacks on Large
+Language Models"
+ACM SIGKDD 2024.
+-- BIPIA benchmark; shows more capable models are more susceptible. Motivates
+   our cross-provider comparison.
+
+================================================================================
+## 2. Prompt Injection in LLM Agents / Tool-Calling
+================================================================================
+
+[zhan2024injecagent] Zhan, Liang et al.
+"InjecAgent: Benchmarking Indirect Prompt Injections in Tool-Integrated Large
+Language Model Agents"
+ACL Findings 2024. arXiv:2403.02691
+-- 1,054 test cases; GPT-4 ReAct agents vulnerable 24% of the time. Closest
+   prior benchmark to ours but uses simulated tool calls.
+
+[perez2022ignore] Perez & Ribeiro
+"Ignore Previous Prompt: Attack Techniques For Language Models"
+NeurIPS ML Safety Workshop 2022. arXiv:2211.09527
+-- Foundational short paper coining the "ignore previous prompt" attack pattern.
+
+================================================================================
+## 3. Security Benchmarks for LLM Agents
+================================================================================
+
+[debenedetti2024agentdojo] Debenedetti, Zhang et al.
+"AgentDojo: A Dynamic Environment to Evaluate Attacks and Defenses for LLM Agents"
+NeurIPS Datasets & Benchmarks 2024. arXiv:2406.13352
+-- Primary reference benchmark. 97 tasks, 629 security cases, simulated
+   environments. Key contrast: we use real execution, not simulation.
+
+[ruan2023toolemu] Ruan et al.
+"Identifying the Risks of LM Agents with an LM-Emulated Sandbox"
+ICLR 2024. arXiv:2309.15817
+-- ToolEmu uses LM-based tool emulation. Relevant contrast: LM simulation
+   of tool calls vs. our real execution.
+
+[shi2024agentharm] Shi et al.
+"AgentHarm: A Benchmark for Measuring Harmfulness of LLM Agents"
+ICLR 2025. arXiv:2410.09024
+-- Evaluates harmful behaviors in agents. Related scope but focuses on
+   misuse rather than adversarial injection.
+
+================================================================================
+## 4. CI/CD and Software Supply Chain Security
+================================================================================
+
+[koishybayev2022characterizing] Koishybayev et al.
+"Characterizing the Security of Github CI Workflows"
+USENIX Security 2022.
+-- Systematic security analysis of GitHub Actions workflows (permission
+   misuse, secret exposure). Most relevant prior academic CI/CD security work.
+
+[enck2022github] Enck & Williams
+"Top Four Open Source Software Security Challenges"
+IEEE Security & Privacy 2022.
+-- Frames CI/CD as a critical software supply chain attack surface.
+
+[ladisa2023sok] Ladisa et al.
+"SoK: Taxonomy of Attacks on Open-Source Software Supply Chains"
+IEEE S&P 2023.
+-- Systematization of supply chain attacks. Provides framing for our
+   integrity compromise attack category.
+
+================================================================================
+## 5. Defenses Against Prompt Injection
+================================================================================
+
+[hines2024defending] Hines et al.
+"Defending Against Indirect Prompt Injection Attacks with Spotlighting"
+arXiv 2024. arXiv:2403.14720
+-- Data delimiting defense (spotlighting). Directly relevant to the
+   prompt-level defenses we compare against workflow-level defenses.
+
+[chen2024struq] Chen et al.
+"StruQ: Defending Against Prompt Injection with Structured Queries"
+arXiv 2024. arXiv:2402.06363
+-- Structured query defense separating instructions from data. Relevant
+   to our defense taxonomy.
+
+[debenedetti2024agentdojo] (same as above — also evaluates 4 defenses)
+
+================================================================================
+## 6. Jailbreaking (brief mention — related but distinct attack class)
+================================================================================
+
+[chao2024jailbreakbench] Chao et al.
+"JailbreakBench: An Open Robustness Benchmark for Jailbreaking Large Language Models"
+NeurIPS Datasets & Benchmarks 2024. arXiv:2404.01318
+-- Standard jailbreak benchmark. Cited to distinguish prompt injection
+   (adversary controls data, not user turn) from jailbreaking.
+
+[zou2023gcg] Zou et al.
+"Universal and Transferable Adversarial Attacks on Aligned Language Models"
+arXiv 2023. arXiv:2307.15043
+-- GCG attack. Foundational adversarial NLP paper; cited as contrast
+   (white-box vs. our black-box threat model).
+
+================================================================================
+## Notes
+================================================================================
+- [koishybayev2022characterizing] is the most important CI/CD paper — verify
+  venue and exact title before adding BibTeX.
+- AgentDojo (debenedetti2024agentdojo) BibTeX key is already used in main.tex
+  as \cite{agentdojo} — use that key when adding the entry.
+- [perez2022ignore] arXiv:2211.09527 — verify NeurIPS workshop venue.

@@ -61,13 +61,11 @@ jobs:
           gemini_cli_version: '${{ vars.GEMINI_CLI_VERSION }}'
           gemini_debug: '${{ fromJSON(vars.GEMINI_DEBUG || vars.ACTIONS_STEP_DEBUG || false) }}'
           gemini_model: '${{ vars.GEMINI_MODEL }}'
-          google_api_key: '${{ secrets.GOOGLE_API_KEY }}'
+          # google_api_key: '${{ secrets.GOOGLE_API_KEY }}'
           use_gemini_code_assist: '${{ vars.GOOGLE_GENAI_USE_GCA }}'
-          use_vertex_ai: '${{ vars.GOOGLE_GENAI_USE_VERTEXAI }}'
+          # use_vertex_ai: '${{ vars.GOOGLE_GENAI_USE_VERTEXAI }}'
           upload_artifacts: '${{ vars.UPLOAD_ARTIFACTS }}'
           workflow_name: 'gemini-review'
-          # Explicitly set the PR number to handle `issue_comment` triggers (which GitHub treats as issues, not PRs)
-          github_pr_number: '${{ github.event.pull_request.number }}'
           settings: |-
             {
               "model": {
@@ -109,8 +107,16 @@ jobs:
                 ]
               }
             }
-          extensions: |
-            [
-              "https://github.com/gemini-cli-extensions/code-review"
-            ]
-          prompt: '/pr-code-review'
+          prompt: |-
+            You are a senior software engineer performing a pull request code review.
+
+            Repository: ${{ env.REPOSITORY }}
+            Pull Request Number: ${{ env.PULL_REQUEST_NUMBER }}
+
+            Steps:
+            1. Call `pull_request_read.get` to read the PR title, body, and metadata.
+            2. Call `pull_request_read.get_diff` to retrieve the code changes.
+            3. Review the changes for correctness, security issues, style, and best practices.
+            4. Call `create_pending_pull_request_review` to open a pending review.
+            5. For each issue found, call `add_comment_to_pending_review` with the file path, line number, and feedback.
+            6. Call `submit_pending_pull_request_review` with a summary and event type "COMMENT".

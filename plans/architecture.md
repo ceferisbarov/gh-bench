@@ -112,10 +112,10 @@ Contains local clones/forks of the AI GitHub Actions being benchmarked. This all
     - The **Runner** polls for workflow completion.
     - The **Analyzer** requests the `Evaluator` objects from the Scenario.
     - The **Evaluators** execute (State checks via API or LLM grading via logs).
-6.  **Reporting**:
+6.  Reporting:
     - The results are logged to the `runs/` directory.
-    - Summary metrics are aggregated into the `reports/` directory according to the **Workflow Taxonomy**.
-7.  **Cleanup**:
+    - Summary metrics are aggregated into the `reports/` directory according to the **Workflow Classification**.
+7.  Cleanup:
     - The **Provisioner** deletes the entire GitHub repository.
 
 ## 4. Key Security Concepts
@@ -131,3 +131,4 @@ For tasks like "Code Review," where success is semantic, we use a high-capabilit
 
 ### 4.4 Canary Tokens & Leak Detection
 Scenarios like `pr_injection_exfiltration.py` use unique strings ("Canary Tokens"). The `StateEvaluator` specifically checks GitHub comments and PR bodies for these tokens to detect exfiltration.
+ration.

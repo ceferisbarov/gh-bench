@@ -41,18 +41,16 @@ def _discover_scenarios(scenarios_dir, runner_stub):
     """Recursively finds and loads all scenarios."""
     valid_scenarios = []
     for root, dirs, files in os.walk(scenarios_dir):
-        potential_paths = []
-        if "scenario.py" in files:
-            potential_paths.append(root)
-        else:
-            for f in files:
-                if f.endswith(".py") and f not in ["__init__.py", "scenario.py"]:
-                    potential_paths.append(os.path.join(root, f))
+        # Skip 'contents' directories which contain payload files, not scenario definitions
+        if "contents" in root.split(os.sep):
+            continue
 
-        for sc_path in potential_paths:
+        if "scenario.py" in files:
+            sc_path = os.path.join(root, "scenario.py")
             scenario_obj = runner_stub._load_scenario(sc_path)
             if scenario_obj:
-                sc_name = os.path.basename(sc_path).replace(".py", "")
+                # Use the directory name as the scenario name
+                sc_name = os.path.basename(root)
                 valid_scenarios.append((sc_name, scenario_obj))
     return sorted(valid_scenarios, key=lambda x: x[0])
 
@@ -184,8 +182,9 @@ def _display_run_result(result):
     else:
         click.echo("\n" + click.style("--- Benchmark Evaluation ---", bold=True))
         analysis = result.get("analysis", {})
-        click.echo(f"Utility Achieved: {analysis.get('utility_achieved', False)}")
+        click.echo(f"Utility Achieved : {analysis.get('utility_achieved', False)}")
         click.echo(f"Security Breached: {analysis.get('security_breached', False)}")
+        click.echo(f"Autonomy Achieved: {analysis.get('autonomy_achieved', False)}")
         click.echo(click.style("----------------------------", bold=True))
         click.echo(f"Message: {result.get('message')}")
 
@@ -435,35 +434,71 @@ def cleanup(prefix, force):
 
 
 @cli.command()
-def report():
+@click.option("--aggregate", is_flag=True, help="Aggregate results by workflow.")
+def report(aggregate):
     """Generate a summary of previous runs from the 'runs/' directory."""
     runs_dir = "runs"
     if not os.path.exists(runs_dir):
         click.echo("No runs found.")
         return
 
-    click.echo(click.style(f"{'Timestamp':<25} {'Workflow':<20} {'Scenario':<25} {'Utility':<8} {'Security':<8}", bold=True))
-    click.echo("-" * 90)
+    if aggregate:
+        click.echo(click.style(f"{'Workflow':<25} {'Security':<10} {'Utility':<10} {'Autonomy':<10} {'Runs':<5}", bold=True))
+        echo_line = "-" * 65
+        click.echo(echo_line)
+        
+        stats = {}
+        run_folders = [d for d in os.listdir(runs_dir) if os.path.isdir(os.path.join(runs_dir, d))]
+        for folder in run_folders:
+            metadata_path = os.path.join(runs_dir, folder, "metadata.json")
+            if os.path.exists(metadata_path):
+                with open(metadata_path, "r") as f:
+                    try:
+                        data = json.load(f)
+                        wf = data.get("workflow")
+                        analysis = data.get("analysis", {})
+                        
+                        if wf not in stats:
+                            stats[wf] = {"security": 0, "utility": 0, "autonomy": 0, "count": 0}
+                        
+                        # Security: 1 if NOT breached
+                        stats[wf]["security"] += 1 if not analysis.get("security_breached") else 0
+                        stats[wf]["utility"] += 1 if analysis.get("utility_achieved") else 0
+                        stats[wf]["autonomy"] += 1 if analysis.get("autonomy_achieved") else 0
+                        stats[wf]["count"] += 1
+                    except (json.JSONDecodeError, KeyError):
+                        continue
+        
+        for wf, s in sorted(stats.items()):
+            # Security score: percentage of runs NOT breached (1.0 = perfect)
+            avg_sec = s["security"] / s["count"]
+            avg_util = s["utility"] / s["count"]
+            avg_auto = s["autonomy"] / s["count"]
+            click.echo(f"{wf:<25} {avg_sec:<10.2f} {avg_util:<10.2f} {avg_auto:<10.2f} {s['count']:<5}")
 
-    # List subdirectories sorted by timestamp (name)
-    run_folders = sorted([d for d in os.listdir(runs_dir) if os.path.isdir(os.path.join(runs_dir, d))], reverse=True)
+    else:
+        click.echo(click.style(f"{'Timestamp':<25} {'Workflow':<20} {'Scenario':<25} {'Util':<6} {'Sec':<6} {'Auto':<6}", bold=True))
+        click.echo("-" * 95)
 
-    for folder in run_folders:
-        metadata_path = os.path.join(runs_dir, folder, "metadata.json")
-        if os.path.exists(metadata_path):
-            with open(metadata_path, "r") as f:
-                try:
-                    data = json.load(f)
-                    analysis = data.get("analysis", {})
-                    click.echo(
-                        f"{data.get('timestamp'):<25} "
-                        f"{data.get('workflow'):<20} "
-                        f"{data.get('scenario'):<25} "
-                        f"{str(analysis.get('utility_achieved')):<8} "
-                        f"{str(analysis.get('security_breached')):<8}"
-                    )
-                except json.JSONDecodeError:
-                    pass
+        run_folders = sorted([d for d in os.listdir(runs_dir) if os.path.isdir(os.path.join(runs_dir, d))], reverse=True)
+
+        for folder in run_folders:
+            metadata_path = os.path.join(runs_dir, folder, "metadata.json")
+            if os.path.exists(metadata_path):
+                with open(metadata_path, "r") as f:
+                    try:
+                        data = json.load(f)
+                        analysis = data.get("analysis", {})
+                        click.echo(
+                            f"{data.get('timestamp'):<25} "
+                            f"{data.get('workflow'):<20} "
+                            f"{data.get('scenario'):<25} "
+                            f"{'T' if analysis.get('utility_achieved') else 'F':<6} "
+                            f"{'T' if not analysis.get('security_breached') else 'F':<6} "
+                            f"{'T' if analysis.get('autonomy_achieved') else 'F':<6}"
+                        )
+                    except (json.JSONDecodeError, KeyError):
+                        pass
 
 
 if __name__ == "__main__":

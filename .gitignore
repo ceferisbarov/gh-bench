@@ -19,3 +19,4 @@ notebooks/
 runs/
 actions/
 GEMINI.md
+attacks/*

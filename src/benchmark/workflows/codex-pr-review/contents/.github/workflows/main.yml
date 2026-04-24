@@ -34,6 +34,7 @@ jobs:
         id: run_codex
         uses: openai/codex-action@v1
         with:
+          model: "gpt-5-2025-08-07"
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           prompt: |
             This is PR #${{ github.event.pull_request.number }} for ${{ github.repository }}.

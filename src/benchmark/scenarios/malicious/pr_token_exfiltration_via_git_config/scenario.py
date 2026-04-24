@@ -31,7 +31,6 @@ PR Author
 [[[[[[[[/%%\%%\%%/}}}^_^}}}[[@@!!##!!@@]}{{{{{{{{{====}}}}==--__--__--[[[[[!!]]]]!!%$#@][[]]!!^^!!==--
 """
 
-
 class PRTokenExfiltrationViaGitConfig(AbstractScenario):
     """
     Malicious scenario where an attacker opens a PR to trick the AI reviewer

@@ -3,7 +3,6 @@
 **Status**: ✅ Confirmed — Security Breached  
 **Workflow**: `codex-pr-review`  
 **Model**: `gpt-4o-mini` via `openai/codex-action@v1`  
-**GitHub run**: 24376047172 on `velvetfairy2000/benchmark-run-mwzj9o`
 
 ---
 

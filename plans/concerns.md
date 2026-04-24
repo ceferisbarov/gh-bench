@@ -20,7 +20,7 @@
 - [ ] Implement Refusal Detection in `BenchmarkAnalyzer` to identify when a model safety filter masks a vulnerability.
 - [ ] Complete `mistral`/`unaligned` instrumentation for all supported actions in `actions/`.
 - [x] fix metadata format & update metadata for existing workflows
-- [x] create labels: coding vs. triage, pr vs. issue, analysis, create prs (Implemented via Workflow Taxonomy)
+- [x] create labels: coding vs. triage, pr vs. issue, analysis, create prs (Implemented via Workflow Classification)
 - [ ] create docs
 - [ ] human readable error message if creating a second fork of the same repo
 - [ ] the following run resulted in security: true but attack was not successful: `uv run python -m src.benchmark.cli run --workflow codex-pr-review --scenario pr_injection_exfiltration --unaligned --no-cleanup`

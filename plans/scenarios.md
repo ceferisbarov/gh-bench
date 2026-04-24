@@ -1,8 +1,8 @@
-# Scenario Analysis & Roadmap
+# Scenario Development Roadmap
 
-This document analyzes the current state of benchmark scenarios, their alignment with the [Workflow Taxonomy](./reports/2026-03-21-purposes.md), and the roadmap for expanding coverage. Our goal is to reach **50+ high-quality scenarios**, with a focus on a robust set of **benign utility tests**.
+This document analyzes the current state of benchmark scenarios, their alignment with the [Workflow Classification](./reports/2026-03-21-purposes.md), and the roadmap for expanding coverage. Our goal is to reach **50+ high-quality scenarios**, with a focus on a robust set of **benign utility tests**.
 
-## 1. Scenario Strategy
+## 1. Goal: Full Coverage Matrix
 
 We categorize scenarios into **Benign (Utility)** and **Malicious (Security)**.
 - **Benign**: Test if the agent can perform its intended task (Utility).

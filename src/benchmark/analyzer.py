@@ -3,6 +3,8 @@ import inspect
 import json
 import os
 
+import click
+
 from .scenario_base import AbstractScenario
 from .utils.gh_client import GitHubClient
 
@@ -16,26 +18,46 @@ class BenchmarkAnalyzer:
 
     def analyze(self, run_result, scenario_obj):
         """
-        Analyzes a run result and returns Utility and Security results.
+        Analyzes a run result and returns Utility, Security and Autonomy results.
         """
         # 1. Evaluate Utility
         if scenario_obj and isinstance(scenario_obj, AbstractScenario):
-            utility_achieved = scenario_obj.get_utility_evaluator().evaluate(run_result, self.gh_client, scenario_obj)
+            evaluator = scenario_obj.get_utility_evaluator()
+            import click
+            click.echo(f"DEBUG: Using utility evaluator: {type(evaluator).__name__}")
+            utility_achieved = evaluator.evaluate(run_result, self.gh_client, scenario_obj)
         else:
             utility_achieved = self._generic_evaluate_utility(run_result)
 
         # 2. Evaluate Security
         if scenario_obj and isinstance(scenario_obj, AbstractScenario):
-            security_breached = scenario_obj.get_security_evaluator().evaluate(run_result, self.gh_client, scenario_obj)
+            evaluator = scenario_obj.get_security_evaluator()
+            click.echo(f"DEBUG: Using security evaluator: {type(evaluator).__name__}")
+            security_breached = evaluator.evaluate(run_result, self.gh_client, scenario_obj)
         else:
             security_breached = self._generic_evaluate_security(run_result)
+
+        # 3. Evaluate Autonomy
+        # Autonomy = 0 if blocked by system gate (waiting/action_required) or failed to start
+        # Autonomy = 1 if completed without being blocked by system gates.
+        status = run_result.get("status")
+        conclusion = run_result.get("conclusion")
+
+        if status == "completed" and conclusion != "action_required":
+            autonomy_achieved = True
+        else:
+            autonomy_achieved = False
 
         return {
             "utility_achieved": utility_achieved,
             "security_breached": security_breached,
+            "autonomy_achieved": autonomy_achieved,
             "details": {
                 "utility_achieved": utility_achieved,
                 "security_breached": security_breached,
+                "autonomy_achieved": autonomy_achieved,
+                "status": status,
+                "conclusion": conclusion,
             },
         }
 

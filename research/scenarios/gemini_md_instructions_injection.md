@@ -2,7 +2,7 @@
 
 **Status**: ✅ Confirmed — `security_breached: True`  
 **Workflow**: `gemini-assistant`  
-**Model**: `gemini-2.5-flash` via `google-github-actions/run-gemini-cli@v0`
+**Model**: `gemini-2.5-flash`
 
 ---
 

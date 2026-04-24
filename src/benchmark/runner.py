@@ -105,30 +105,19 @@ class BenchmarkRunner:
                 if provider_error:
                     return {"error": provider_error}
 
-            requirements = self._get_workflow_requirements(workflow_dir)
-
-            secrets = {}
-            variables = {}
-            missing = []
-
-            for secret_name in requirements["secrets"]:
-                val = os.environ.get(secret_name)
-                if val:
-                    secrets[secret_name] = val
-                else:
-                    missing.append(f"Secret: {secret_name}")
-
-            secrets.update(scenario.get_secrets())
-
-            for var_name in requirements["vars"]:
-                val = os.environ.get(var_name)
-                if val:
-                    variables[var_name] = val
-                else:
-                    missing.append(f"Variable: {var_name}")
-
+            # Tier 1: workflow-declared required keys (hard block)
+            required_secrets = workflow_meta.get("required_secrets", [])
+            required_vars = workflow_meta.get("required_vars", [])
+            missing = [k for k in required_secrets + required_vars if not os.environ.get(k)]
             if missing and not unaligned:
                 return {"error": "Missing required environment variables:\n  - " + "\n  - ".join(missing)}
+
+            # Tier 2: YAML-scanned keys — set if available, silently skip if not
+            requirements = self._get_workflow_requirements(workflow_dir)
+            secrets = {k: v for k in requirements["secrets"] if (v := os.environ.get(k))}
+            variables = {k: v for k in requirements["vars"] if (v := os.environ.get(k))}
+
+            secrets.update(scenario.get_secrets())
 
             target_branch = getattr(scenario, "branch", None)
             template_repo = scenario.get_template_repo()
@@ -194,15 +183,23 @@ class BenchmarkRunner:
                 return {"error": f"Failed to trigger GitHub event: {trigger_error}"}
 
             click.echo("Waiting for workflow run to start and complete...")
-            run_id = self._wait_for_run(start_time, expected_event=expected_event)
+            wait_result = self._wait_for_run(start_time, expected_event=expected_event)
 
-            if not run_id:
+            if not wait_result:
                 return {"error": "Timed out waiting for workflow run or could not find it."}
+
+            run_id, final_run = wait_result
 
             click.echo(f"Fetching logs for run {run_id}...")
             stdout, stderr = self._get_workflow_logs(run_id)
 
-            run_result = {"stdout": stdout, "stderr": stderr, "exit_code": 0}
+            run_result = {
+                "stdout": stdout,
+                "stderr": stderr,
+                "exit_code": 0,
+                "status": final_run.status if final_run else None,
+                "conclusion": final_run.conclusion if final_run else None,
+            }
 
             analysis = self.analyzer.analyze(run_result, scenario)
 
@@ -809,12 +806,12 @@ class BenchmarkRunner:
         if hasattr(self, "_last_run_count"):
             del self._last_run_count
 
-        return target_run.id
+        return target_run.id, target_run
 
     def _get_workflow_logs(self, run_id):
         """Retrieves the full logs for a specific workflow run."""
         # Note: Using gh CLI here because pygithub doesn't easily expose full logs in a single call
-        stdout, stderr = self.gh_client.run_gh(["run", "view", str(run_id), "--log"])
+        stdout, stderr = self.gh_client.run_gh(["run", "view", str(run_id), "--log"], use_repo=True)
         return stdout, stderr
 
     def _validate_provider_requirements(self, meta):
@@ -833,12 +830,7 @@ class BenchmarkRunner:
             AIProvider.AMAZON_Q: ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
             AIProvider.GITHUB_COPILOT: ["COPILOT_GITHUB_TOKEN"],
             AIProvider.OPENROUTER: [
-                "GEMINI_API_KEY",
-                "GEMINI_MODEL",
-                "GEMINI_DEBUG",
                 "OPENROUTER_API_KEY",
-                "ANTHROPIC_BASE_URL",
-                "ANTHROPIC_AUTH_TOKEN",
             ],
         }
         required_keys = provider_keys.get(provider, [])
