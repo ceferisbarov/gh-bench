@@ -3,7 +3,7 @@
 A modular framework for benchmarking, analyzing, and securing AI-driven automation in GitHub Workflows.
 
 <div style="border-left: 4px solid red; padding: 10px; background:#ffe6e6;">
-<strong>WARNING:</strong> We strongly suggest using a burner GitHub account while using this benchmark.
+<strong>WARNING:</strong> We strongly suggest using a secondary GitHub account while using this benchmark.
 </div>
 
 ## Project Structure
@@ -20,6 +20,7 @@ A modular framework for benchmarking, analyzing, and securing AI-driven automati
 - Python 3.13+
 - [uv](https://github.com/astral-sh/uv)
 - [GitHub CLI (gh)](https://cli.github.com/) - Authenticated with `repo` and `workflow` scopes.
+- For Claude-based workflows, enable the [Claude GitHub App](https://github.com/apps/claude).
 
 ### Installation
 ```bash
